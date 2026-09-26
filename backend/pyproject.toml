@@ -1,0 +1,9 @@
+[project]
+name = "vigilon"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi==0.115.12", "uvicorn[standard]==0.34.2", "sqlalchemy==2.0.41",
+  "alembic==1.16.1", "psycopg[binary]==3.2.9", "argon2-cffi==25.1.0",
+  "cryptography==45.0.4", "opencv-python-headless==4.11.0.86", "Pillow==11.2.1"
+]

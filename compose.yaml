@@ -1,0 +1,81 @@
+services:
+  db:
+    image: postgres:16.9-bookworm
+    logging: &default-logging
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    environment:
+      POSTGRES_DB: vigilon
+      POSTGRES_USER: vigilon
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/setup.ps1 or scripts/setup.sh first}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vigilon -d vigilon"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build: {context: ., dockerfile: infra/backend.Dockerfile}
+    logging: *default-logging
+    command: ["python", "-m", "app.commands", "migrate"]
+    working_dir: /app/backend
+    environment: &backend-env
+      DATABASE_URL: postgresql+psycopg://vigilon:${POSTGRES_PASSWORD}@db:5432/vigilon
+      VIGILON_SECRET_KEY: ${VIGILON_SECRET_KEY:?Set up .env first}
+      VIGILON_ENCRYPTION_KEY: ${VIGILON_ENCRYPTION_KEY:?Set up .env first}
+      VIGILON_ADMIN_USERNAME: ${VIGILON_ADMIN_USERNAME:-admin}
+      VIGILON_ADMIN_PASSWORD: ${VIGILON_ADMIN_PASSWORD:?Set admin password in .env}
+      VIGILON_ALLOWED_RTSP_CIDRS: ${VIGILON_ALLOWED_RTSP_CIDRS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      VIGILON_MEDIA_DIR: /app/sample_data
+      VIGILON_EVIDENCE_DIR: /data/evidence
+      VIGILON_HANDOFF_DIR: /data/frames
+      VIGILON_RETENTION_DAYS: ${VIGILON_RETENTION_DAYS:-30}
+      VIGILON_COOKIE_SECURE: ${VIGILON_COOKIE_SECURE:-false}
+    depends_on: {db: {condition: service_healthy}}
+    restart: "no"
+  bootstrap:
+    build: {context: ., dockerfile: infra/backend.Dockerfile}
+    logging: *default-logging
+    command: ["python", "-m", "app.commands", "bootstrap-admin"]
+    working_dir: /app/backend
+    environment: *backend-env
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    profiles: ["setup"]
+  seed-demo:
+    build: {context: ., dockerfile: infra/backend.Dockerfile}
+    logging: *default-logging
+    command: ["python", "-m", "app.commands", "seed-demo", "--scenario", "obstruction"]
+    working_dir: /app/backend
+    environment: *backend-env
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    profiles: ["setup"]
+  api:
+    build: {context: ., dockerfile: infra/backend.Dockerfile}
+    logging: *default-logging
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    working_dir: /app/backend
+    environment: *backend-env
+    volumes: [evidence_data:/data]
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  worker:
+    build: {context: ., dockerfile: infra/backend.Dockerfile}
+    logging: *default-logging
+    command: ["python", "-m", "app.worker"]
+    working_dir: /app/backend
+    environment: *backend-env
+    volumes: [evidence_data:/data]
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    stop_grace_period: 15s
+  web:
+    build: {context: ., dockerfile: infra/frontend.Dockerfile}
+    logging: *default-logging
+    ports: ["127.0.0.1:5173:80"]
+    depends_on: {api: {condition: service_healthy}}
+volumes:
+  postgres_data:
+  evidence_data:
