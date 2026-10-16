@@ -1,0 +1,18 @@
+schema_version: 1
+module_id: fire_smoke
+package_version: 0.1.0
+adapter_id: vigilon.ultralytics.fire_smoke
+task: detect
+runtime:
+  framework: ultralytics
+  tested_versions: []
+  minimum_version: "8.3.0"
+weights:
+  path: weights/best.pt
+  sha256: null
+inference: {path: inference.yaml}
+classes: {path: classes.json}
+scenarios: {path: scenarios.yaml}
+supported_events: [SMOKE_DETECTED, FIRE_DETECTED, SMOKE_FIRE]
+model_card: {path: MODEL_CARD.md}
+evaluation: {path: evaluation.json}

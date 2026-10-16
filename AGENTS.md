@@ -4,7 +4,7 @@
 
 Vigilon adds event review, evidence snapshots, notifications, and operator actions to existing CCTV cameras and NVR channels that the user owns or administers. It supplements certified safety and fire systems; it is not a camera, replacement NVR, universal compatibility layer, or certified alarm. Use only explicitly configured and authorized sources. Never scan networks, guess credentials, bypass authentication, or claim compatibility that has not been verified.
 
-The local CPU demo uses generated video and simulated events. Real detector plugins are currently unavailable. Do not imply that the simulated scenarios are real inference or report accuracy/safety claims. Do not add facial recognition, identity profiling, or criminal-intent inference without a separately approved product requirement.
+The local CPU demo uses generated video and simulated events. Ultralytics detection adapters are available when separately installed and supplied trusted packages; this checkout has no weights and has not validated real inference. Do not imply that simulated scenarios are real inference or report accuracy/safety claims. Do not add facial recognition, identity profiling, or criminal-intent inference without a separately approved product requirement.
 
 ## Before changing code
 
@@ -20,9 +20,11 @@ The local CPU demo uses generated video and simulated events. Real detector plug
 
 - `backend/app/main.py`: FastAPI routes, request validation, authentication/authorization, previews, evidence, and operator actions.
 - `backend/app/db.py`, `backend/migrations/`: SQLAlchemy persistence and Alembic schema history. Use migrations for durable schema changes; do not replace them with `create_all`.
-- `backend/app/worker.py`: separate ingestion process, lease, source lifecycle, frame publication, detector/rule orchestration.
+- `backend/app/worker.py`: separate ingestion process, lease, source lifecycle, frame publication, detector/rule orchestration, and the bounded FILE job runner.
+- `backend/app/file_jobs.py`: persistent job records/results in the shared handoff volume, contained media paths, cancellation, and recovery.
 - `backend/app/adapters.py`: typed synthetic and OpenCV local-file/RTSP source adapters.
-- `backend/app/detection.py`, `backend/app/rules.py`: detector contract, unavailable real detector, simulated scenarios, and temporal rule evaluation.
+- `backend/app/detection.py`, `backend/app/rules.py`: typed detector contract, simulated scenarios, and temporal rule evaluation.
+- `backend/app/ai_hub.py`, `backend/app/scenario_rules.py`, and root `models/`: reviewed Ultralytics detection packages, local metadata/runtime validation, per-session ByteTrack, and shared scenario rules. Package readiness is not trained-model or camera validation.
 - `backend/app/services/`: incident/evidence persistence and in-app notification behavior.
 - `backend/app/retention.py`: explicit evidence-retention cleanup command; no periodic scheduler currently invokes it.
 - `backend/tests/`: API, worker, persistence, evidence, permissions, geometry, and adapter checks.
@@ -32,7 +34,9 @@ The local CPU demo uses generated video and simulated events. Real detector plug
 - `sample_data/`: generated demo media; keep real footage and evidence out of Git.
 - `docs/`: architecture, compatibility, security, detector contract, roadmap, and implementation evidence.
 
-The implemented demo includes login/logout, overview, source management, scenario selection, authenticated JPEG preview/evidence, normalized rectangle/polygon zone editing, rule minimum-duration/cooldown/timezone configuration, incident actions/history, and simulated in-app notification behavior. The zone editor and timezone setting exist; monitoring schedules are not evaluated. Full source settings/connectivity check, real detector, user-management UI, external notification delivery, clips, scheduled retention, password reset, and session revocation are not implemented. Consult `docs/IMPLEMENTATION_STATUS.md` for current evidence and limitations.
+The implemented demo includes login/logout, overview, source management, scenario selection, authenticated JPEG preview/evidence, normalized rectangle/polygon zone editing, rule minimum-duration/cooldown/timezone configuration, incident actions/history, and simulated in-app notification behavior. The zone editor and timezone setting exist; monitoring schedules are not evaluated. Full source settings/connectivity check, user-management UI, external notification delivery, clips, scheduled retention, password reset, and session revocation are not implemented. The real detector adapter exists, but this checkout has no model weights and no real inference validation. Consult `docs/IMPLEMENTATION_STATUS.md` for current evidence and limitations.
+
+The AI Hub registers only `people_vehicle` and `fire_smoke` detection adapters. Treat `.pt` checkpoints as trusted executable artifacts; never fetch or activate them automatically. Metadata validation does not establish runtime readiness; runtime readiness does not establish accuracy. Assign live modules only to explicitly configured RTSP/RTSPS sources. `hub-self-test` and synthetic fixtures are explicitly simulated. FILE jobs use local files beneath `VIGILON_MEDIA_DIR`, are bounded to one analysis at a time and expose progress, cancellation, results and an authenticated event timeline/seek UI. No browser upload exists; in Compose, import files through the read-only `sample_data` mount. Check the status ledger before claiming real-model/browser-codec validation.
 
 ## Team ownership and integration
 
@@ -67,6 +71,15 @@ Coordinate shared schemas, migrations, lockfiles, and Compose changes. Document 
 - Rule duration/cooldown and timezone configuration are supported. Schedule execution is not implemented: never imply saved timezone/schedule data means a monitoring schedule is being enforced. Do not count a long source outage as continuous event duration.
 - Do not accumulate detections across gaps as if continuously observed. Define recurrence and cooldown behavior explicitly; continuing observations update an existing logical incident rather than creating a flood or reopening a resolved incident on every frame.
 - Future real detector work should begin with one scoped event, a consented/licensed evaluation set, temporal reasoning, provenance, event-level precision/recall, false alerts per camera-hour, detection delay, missed events, throughput, and stated hardware/test conditions. Do not download large models or send footage to hosted AI without authorization.
+
+## AI Hub packages
+
+- Resolve `VIGILON_MODEL_DIR` relative to the repository by default. Keep the canonical package tree documented in `models/README.md`; do not commit weights or generated checkpoints.
+- Only the exact built-in adapter IDs and Ultralytics `detect` task are accepted. Preserve checkpoint class names and explicit canonical aliases. Do not infer class indices or dynamically import package-specified code.
+- Runtime load validates class map, task, optional checksum, device and controlled warmup. CUDA unavailable is an explicit error unless package config allows CPU fallback. No fake model fallback is permitted.
+- Reuse runtime weights only under its lock. ByteTrack and scenario state are isolated by source/job. Reload is explicit and processed by the existing worker through its shared handoff control file.
+- `analyze-video` reads ordered frames only from `VIGILON_MEDIA_DIR`, uses media time, writes per-job results, and marks incomplete runs failed/cancelled. It is not a persistent Visor job system.
+- Report `HUB_INFRA_READY`, `REAL_MODEL_VALIDATED`, and `CAMERA_VALIDATED` as separate states. A missing weight is unavailable, never zero detections or a successful model load.
 
 ## Incidents, evidence, authentication, and privacy
 

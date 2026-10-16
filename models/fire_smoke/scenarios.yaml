@@ -1,0 +1,19 @@
+defaults:
+  minimum_observation_seconds: 2.0
+  disappearance_grace_seconds: 1.5
+  cooldown_seconds: 60.0
+  aggregation: per_camera_event
+scenarios:
+  smoke_episode:
+    event_type: SMOKE_DETECTED
+    required_classes: [smoke]
+    minimum_observation_seconds: 2.0
+  fire_episode:
+    event_type: FIRE_DETECTED
+    required_classes: [fire]
+    minimum_observation_seconds: 2.0
+  smoke_fire_episode:
+    event_type: SMOKE_FIRE
+    class_mode: all
+    required_classes: [smoke, fire]
+    minimum_observation_seconds: 2.0

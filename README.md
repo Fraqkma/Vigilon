@@ -84,6 +84,28 @@ python -m pytest -q backend/tests
 node --check frontend/app.js
 ```
 
+## Model-ready AI Hub
+
+The AI Hub accepts only reviewed Ultralytics detection checkpoints through the built-in `people_vehicle` and `fire_smoke` adapters. Place the owner-approved file at `models/people_vehicle/weights/best.pt` or `models/fire_smoke/weights/best.pt`, and update `classes.json`, scenarios, model card, evaluation, and optional checksum to match the checkpoint. The directories are mounted read-only in Compose and are not copied into the image, so adding/replacing weights does not require an image rebuild. The optional AI runtime is intentionally separate from the small CPU demo install. Install the matching CPU or CUDA PyTorch build for the target machine first, then `python -m pip install -r requirements-ai.lock`.
+
+Windows activation/validation commands (run from repository root):
+
+```powershell
+$env:PYTHONPATH = 'backend'
+.\.venv\Scripts\python.exe -m app.commands list-models
+.\.venv\Scripts\python.exe -m app.commands validate-model people_vehicle --mode metadata
+.\.venv\Scripts\python.exe -m app.commands validate-model people_vehicle --mode runtime
+.\.venv\Scripts\python.exe -m app.commands reload-model people_vehicle
+```
+
+Repeat with `fire_smoke`. `reload-model` queues worker reload in the shared handoff directory. A running worker handles it at its next loop boundary. In Visor, open **AI Hub**, select an authorized file/RTSP source, choose modules, and save. Modules assigned without weights remain unavailable and produce no detections. Runtime validation is not an accuracy test.
+
+For ordered file analysis in Visor, go to **AI Hub → FILE analysis**, choose an input beneath `VIGILON_MEDIA_DIR`, choose ready modules, and monitor/cancel the job. Results include a media-time event timeline that seeks the authenticated original video; browser playback depends on codec support. Compose mounts the host `sample_data` read-only at `/app/sample_data`, so copy/import files there before creating a job. The API keeps at most 100 job records and 10,000 events per result; terminal jobs can be deleted in Visor. There is no browser upload.
+
+The CLI is also available: `python -m app.commands analyze-video --input <path-under-media-root> --modules people_vehicle,fire_smoke --scenario-config <json-file> --output <directory>`. Omit a module if its trusted weights are not installed. Result JSON is only marked `COMPLETED` after ordered EOF; decode/inference errors and cancellation produce `FAILED`/`CANCELLED` results. `python -m app.commands hub-self-test` exercises the explicit simulated fixture only.
+
+The Hub catalog and templates establish `HUB_INFRA_READY`. No trained checkpoint is included, so this checkout does not claim `REAL_MODEL_VALIDATED` or `CAMERA_VALIDATED`. See [AI Hub](docs/AI_HUB.md), [package spec](docs/MODEL_PACKAGE_SPEC.md), and [model placement and handoff](models/README.md).
+
 Use the repository `.venv` Python instead of system Python. Configure retention days in `.env`; the cleanup command removes expired snapshots and flags their database references while preserving incident history. No periodic scheduler currently invokes it automatically.
 
 ## Troubleshooting
@@ -97,4 +119,4 @@ Use the repository `.venv` Python instead of system Python. Configure retention 
 
 ## Scope and limitations
 
-The browser client is a dependency-free JavaScript single page app, not React/Vite. The verified vertical slice covers generated synthetic sources, private authenticated JPEG previews, simulated obstruction incidents, evidence snapshots, in-app notifications, operator history, and a normalized rectangle/polygon zone editor. Real RTSP/file adapters are implemented but were not hardware/protocol-tested. Real AI detector plugins are unavailable. Monitoring schedules, a real connectivity-check endpoint, clips, external notifications, and user-management UI are not implemented. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for evidence and the exact boundary.
+The browser client is a dependency-free JavaScript single page app, not React/Vite. The verified vertical slice covers generated synthetic sources, private authenticated JPEG previews, simulated obstruction incidents, evidence snapshots, in-app notifications, operator history, and a normalized rectangle/polygon zone editor. Real RTSP/file adapters are implemented but were not hardware/protocol-tested. The model-ready AI Hub and Ultralytics adapters are implemented, but this checkout has no weights; runtime model and physical-camera validation remain pending. FILE job APIs, bounded worker processing, progress/cancel/results and browser event timeline are implemented; browser codec coverage was not tested. Monitoring schedules, a real connectivity-check endpoint, clips, external notifications, and user-management UI are not implemented. See [implementation status](docs/IMPLEMENTATION_STATUS.md) for evidence and the exact boundary.

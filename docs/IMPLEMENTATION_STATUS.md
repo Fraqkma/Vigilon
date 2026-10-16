@@ -1,51 +1,43 @@
 # Implementation status
 
-## Progress
+## AI Hub readiness
 
-1. Inspected the repository and runtimes; preserved the user-supplied `task.md`. **Done.**
-2. Created root repository guidance and this evidence ledger. **Done.**
-3. Implemented infrastructure, source adapters, and a runnable local synthetic vertical slice. **Done.**
-4. Ran checks supported by this environment and recorded unavailable checks below. **Done.**
+**HUB_INFRA_READY: yes.** The repository now contains two canonical package templates, strict metadata/path/class/scenario validation, optional SHA-256 verification, optional Ultralytics runtime loading and warmup, CPU/CUDA policy, detection-only task enforcement, BGR/RGB handling, original-pixel boxes, ByteTrack instances per source/job, serialized shared model calls, worker reload control, source module assignment, incident/evidence mapping, authenticated Hub APIs, and an AI Hub view in the existing JavaScript Visor. Ordered FILE analysis uses the same Hub and source adapter through `analyze-video`; it reports progress as frame counts in a final result document and does not silently call a partial run complete.
 
-## Implemented and verified
+`REAL_MODEL_VALIDATED: no.` Neither canonical `best.pt` exists. Runtime-adapter control behavior was tested with a mocked loader; no Ultralytics or PyTorch model was installed or loaded, and no trained/untrained checkpoint inference was run. `CAMERA_VALIDATED: no.` There was no explicitly authorized physical camera or NVR session during this work. Synthetic tests below validate only simulated paths.
 
-- Windows Python 3.10 local setup, `.env` placeholder filling without printing generated secrets, SQLite Alembic migration, idempotent admin bootstrap, and idempotent demo seed.
-- FastAPI API, signed HTTP-only role-aware login, Argon2 password hashes, authenticated JPEG preview/evidence, administrator-only source/rule endpoints, and operator incident actions.
-- Separate worker process with a singleton expiring lease, per-source reader threads, bounded one-frame queues, replace-oldest behavior, configuration polling, configurable timeout/reconnect backoff, health counters, stale preview reporting, and persisted redacted source errors.
-- Synthetic source changes its rendered frame and supports `normal`, `obstruction`, `person_down`, and `smoke_fire`. The scenarios are simulated and visually marked.
-- Typed detection contract; unavailable real detector reports no availability/results. Separate temporal rule, incident persistence/deduplication, and notification services exercise minimum duration, cooldown, active incident deduplication, snapshot evidence, and operator transition history.
-- OpenCV local file adapter with generated MJPEG AVI fixture, observed EOF, and media-path escape rejection.
-- Evidence retention removes aged snapshot files and preserves the incident record with an expired-evidence marker; covered by an automated test.
-- Normalized polygon/rectangle zone validation and a browser editor that maps clicks over contain-letterboxed previews. Rule minimum duration/cooldown/timezone values can be saved. Schedule execution is not implemented.
-- Docker Compose/YAML parses locally; Python modules compile; browser JavaScript syntax passes. Browser QA exercised login, navigation, camera preview, zone editor, logout, and 375/768/1440 px layouts with no horizontal overflow or console errors.
-- End-to-end live API + worker smoke completed on SQLite: login, worker heartbeat, simulated JPEG preview, incident creation, JPEG evidence serving, acknowledge, resolve, and persisted history.
+The live worker can run explicitly assigned modules and persist scenario events to existing incidents/evidence. Module selection is kept in existing rule configuration, without a schema migration. The authenticated API supports module catalog, metadata/runtime validation, worker reload requests, and per-camera module assignment. The Visor exposes readiness, validation/reload, live selection for configured RTSP/RTSPS sources, and FILE job creation/progress/cancel/results with an authenticated media route and event timeline seeking.
 
-## Implemented, verification unavailable
+FILE jobs are stored as atomic JSON state/results in the existing shared handoff directory (no database migration). The worker runs one job at a time alongside LIVE ingestion, reports progress every ten frames, checks cancellation between frames, marks interrupted jobs failed on restart, caps event output at 10,000 and job history at 100, and exposes explicit deletion of terminal results. The Visor timeline seeks the authenticated original media route; browser playback still depends on codec support. No upload exists; inputs must be imported beneath `VIGILON_MEDIA_DIR`. The shared scenario utility is wired into live zone-entry/line-crossing/dwell processing and FILE jobs; detailed fire/smoke event confirmation still requires real temporal evaluation data and owner review.
 
-- PostgreSQL-specific migration/runtime and full Docker Compose startup. Docker/Compose are not installed in this environment.
-- RTSP/RTSPS OpenCV FFmpeg adapter, destination allowlist, actual open/read timeout behavior against a publisher or hardware, NVR stream compatibility, and local video codecs beyond the generated MJPEG test fixture.
-- Docker image builds, Nginx frontend proxy, CI execution on GitHub, production-sized retention load, and shutdown under a truly wedged decoder.
+## Simulated and metadata validation
 
-## Simulated
+- `hub-self-test` reports only `SIMULATED_SELF_TEST_PASSED`; normal/obstruction/person-down/smoke-fire use the existing generated synthetic plugin. These observations are marked simulated and do not prove detector performance.
+- Metadata validation passed for both packages with `MISSING_WEIGHTS`; package schema, path escape, malformed YAML/config, duplicate labels, checksum mismatch, missing weights, and status distinctions are covered in tests.
+- Adapter behavior tests use a stub YOLO loader to verify CPU warmup path, explicit CUDA-unavailable failure, unsupported task, and class-name mismatch. They are mocks, not model-library inference.
+- No package weight file, production model, or false performance metric was created.
 
-- Only the generated source produces obstruction, person-down, or smoke/fire events. Its fixture draws visible event evidence into the same frame referenced by the incident snapshot, and incidents/UI include a `SIMULATED` badge.
-- No real AI inference, accuracy, safety certification, identity, or intent inference is claimed. Real detector plugins are unavailable.
+## Existing Vigilon behavior preserved
 
-## Verification record
+The API and worker remain separate and share the existing worker lease. Synthetic source, bounded latest-frame handoff, authenticated previews/evidence, incident deduplication/operator history, retention command, and existing camera/rule workflows remain in place. Real source module execution does not replace or weaken RTSP destination allowlisting or local media-root containment. Compose mounts `./models` read-only at `/models`; packages are not baked into images.
 
-- `pip install -r requirements.lock` and `pip install -r requirements-dev.lock`: passed in the project-local `.venv`; `pip check`: no broken requirements.
-- `python -m app.commands migrate` on a fresh SQLite file: all three Alembic revisions applied and the source configuration columns/tables were present. Upgrade was also applied to the persistent local demo database.
-- `python -m compileall -q backend/app backend/migrations`: passed.
-- `python -m pytest -q backend/tests`: **7 passed**, with one upstream Starlette/AnyIO deprecation warning.
-- `node --check frontend/app.js`: passed. Compose YAML parsed with PyYAML.
-- `python scripts/smoke_demo.py` against the running local API and worker: passed login, ONLINE worker, changing SIMULATED JPEG preview, OBSTRUCTION incident, JPEG evidence, RESOLVED status, and two history entries.
-- Playwright browser QA: login/logout and zone editor opened; visible API requests returned 200 after authentication; 375, 768, and 1440 px layouts had no horizontal overflow; zero browser console errors. No committed visual baseline exists, so no pixel comparison was made.
-- Docker/Compose executable is absent. Docker image builds, Compose runtime, PostgreSQL runtime, and CI job were not run. No physical camera or RTSP publisher was available.
+## Verification performed for this change
 
-## Planned or incomplete
+- `.venv` was created with Python 3.13 and project `requirements-dev.lock` installed. `pip check`: passed.
+- `python -m pytest -q -p no:cacheprovider --basetemp=.data/pytest-last backend/tests`: **17 passed**, one existing Starlette/AnyIO deprecation warning.
+- `python -m compileall -q backend/app backend/tests`: passed.
+- `node --check frontend/app.js`: passed.
+- `python -m app.commands list-models`: passed; both modules correctly report `MISSING_WEIGHTS` with absolute paths.
+- `python -m app.commands validate-model people_vehicle --mode metadata`: passed metadata, reported missing weights.
+- `python -m app.commands hub-self-test`: passed with three explicitly simulated scenarios; did not validate real inference.
+- FILE job worker/API test: a generated three-frame AVI, mocked detection runtime, ordered frame count, scenario event, cancellation, result retrieval, deletion, and media-root escape rejection passed. This is a FILE pipeline test with mocked observations, not model inference.
+- Docker Compose runtime was not available because the Docker executable is absent; Compose YAML parsed. PostgreSQL, actual Ultralytics/PyTorch inference, physical camera/NVR, live model reload with a running worker, and browser-level AI Hub workflows were not run.
 
-- Real detector evaluation data and a temporally validated person-down or obstruction plugin.
-- Monitoring schedule execution and full source settings/connectivity check workflow.
-- External notification delivery, clips, user-management UI, automated retention schedule, and production deployment hardening.
-- Frontend is dependency-free JavaScript rather than the suggested React/TypeScript/Vite stack; there is no frontend package build/typecheck.
-- Password reset/session revocation and full administrative account lifecycle.
+## Remaining work / owners
+
+- **AI 1:** supply trusted people/vehicle detection checkpoint and exact class map, model card/provenance/license, training/evaluation evidence and runtime versions; verify entry/crossing/dwell and cross-source tracker isolation.
+- **AI 2:** supply trusted fire/smoke checkpoint and exact class map, provenance/license and temporally evaluated episode behavior.
+- **AI 3 / integration:** run browser QA for the AI Hub/file timeline and test FILE cancellation while LIVE sources are active; confirm runtime and codec behavior on a target machine.
+- **Compatibility / PM:** test supported codecs and authorized RTSP/NVR on a stated hardware matrix; record `CAMERA_VALIDATED` only after that test.
+
+Startup, validation and activation commands are in `models/README.md` and the AI Hub section of `README.md`.

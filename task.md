@@ -1,255 +1,259 @@
-# Vigilon — executable infrastructure jumpstart for Codex
+# Vigilon — AI Hub ready for teammate model packages
 
-## Assignment
+## Mission
 
-Work in this repository as the implementation engineer. Build the runnable foundation described below, create/update `AGENTS.md`, and verify the result. This is an implementation task, not a request for a proposal or documentation-only scaffold.
+Implement this task end-to-end in the existing Vigilon repository. Deliver a working AI Hub, real Ultralytics inference adapters, deterministic integration tests, model-package templates, and operator integration so teammates can place supported weights and configuration into documented folders and run inference without modifying Hub internals.
 
-Inspect repository instructions and existing files first. Preserve unrelated changes and working functionality. Adapt an existing suitable stack rather than replacing it needlessly. Make routine decisions autonomously. Do not stop after planning; continue through implementation and verification. If a dependency or environment blocks one part, complete independent parts and report the exact blocker honestly.
+This task supersedes the original jumpstart's implementation scope for this work session. Preserve existing architecture and functioning features. Do not regenerate the project. Read applicable AGENTS.md instructions, README, status documents, source code, and Git diff before editing. Respect the user's active Codex settings, installed skills, ECC/hooks, and available MCP tools. Do not change global settings, reinstall agent tooling, or bypass approvals. Use available documentation tools to verify APIs against versions actually selected and locked.
 
-## Product contract
+The deliverable is implementation, not a proposed architecture. Continue through code, migrations if needed, local execution, verification, documentation, and handoff. Do not commit or push unless separately instructed. Preserve unrelated work and local data.
 
-**Vigilon is an adaptable software hub for existing, owner-authorized CCTV infrastructure.** It adds event detection, evidence, notifications, and incident response to compatible cameras/NVR channels. It is not a proprietary camera, a single-purpose hardware appliance, or a replacement NVR.
+## Agreed method and team ownership
 
-Deploy on a PC, local server, or edge computer. CPU-only demo operation is mandatory; GPU inference can be added later. Connect only through supported interfaces with explicitly supplied authorization. Do not scan networks, guess passwords, bypass camera authentication, or claim universal camera compatibility.
+- Python + PyTorch.
+- Ultralytics YOLO pretrained object-detection models; fine-tune only where needed.
+- CVAT labels exported in compatible YOLO detection format.
+- Training on an NVIDIA machine or Colab using reproducible scripts/configuration.
+- Dataset splits by recording/session/site, not adjacent random frames.
+- ByteTrack for people/vehicle tracking.
+- Python temporal/spatial rules for zone entry, directional line crossing, and dwell.
+- AI 1 owns people/vehicle weights, tracking, and its scenario module.
+- AI 2 owns fire/smoke weights, training data, and its scenario module.
+- AI 3 owns Hub runtime, plugin interfaces, scheduling, registration, and common tooling.
+- Compatibility owner owns source decoding, RTSP/file/synthetic adapters, timestamps, and preview handoff.
+- PM owns Visor, application APIs/database, infrastructure, and final integration.
 
-Initial users: administrators and operators of condos, dormitories, schools, and small commercial properties.
+Build the agreed initial modules and reusable rule utilities now so teammates can subsequently improve their modules without redesigning the Hub. Do not leave the functional integration for the PM to finish.
 
-End-to-end workflow:
-Register source → ingest frames → preview → configure zones/rules → evaluate detections over time → create incident/evidence → notify operator → acknowledge → resolve or mark false alarm.
+Vigilon supports LIVE monitoring and FILE analysis through the same modules. It adapts to existing authorized CCTV/NVR streams. A weights file alone is not a universal executable plugin: support a clearly specified Ultralytics detection-checkpoint contract. Segmentation, pose, arbitrary PyTorch state dictionaries, and other architectures require explicit adapters and should return UNSUPPORTED_MODEL rather than being guessed.
 
-Future detector targets:
-- Person falling or remaining on the ground.
-- Object/vehicle obstructing a configured emergency route.
-- Visible smoke/flame.
-- Later: prohibited-direction movement, restricted-zone entry, crowding, and water accumulation.
+## Inspect actual baseline
 
-This task builds extensible infrastructure and explicitly simulated detector scenarios. It does not require training or integrating all real AI models. Do not manufacture inference results or accuracy claims. Do not add facial recognition, identity profiling, or claims of predicting criminal intent. The platform supplements, rather than replaces, certified fire/safety systems.
+The supplied handoff previously reported FastAPI/SQLAlchemy/Alembic, SQLite local mode and PostgreSQL Compose, separate API/worker, worker lease, source adapters, shared JPEG preview, authenticated snapshots, incidents, and a plain JavaScript frontend. Treat these as historical claims. Inspect current code and reuse working components. Do not migrate the frontend framework as part of this task.
 
-## Phase 0 — inspect, plan, and establish instructions
+Produce a brief gap map and then implement. Keep docs/IMPLEMENTATION_STATUS.md accurate. Missing Docker or physical-camera access is not a reason to stop implementing and testing the independent Hub/file workflow.
 
-- Inspect Git status, existing instructions, dependencies, and available runtimes.
-- Record a short plan and track progress in `docs/IMPLEMENTATION_STATUS.md`.
-- Create or carefully update root `AGENTS.md` early; refine it after implementation so commands and paths reflect reality.
-- Preserve this task's requirements. Do not rewrite acceptance criteria merely to mark work complete.
-- Use existing Context7/documentation tools if available to verify unfamiliar APIs. Do not install global tooling or modify global agent configuration for this task.
-- No public deployment, real-camera access, external notifications, or large model downloads are needed. Use generated local fixtures for verification.
+## Canonical repository-relative model paths
 
-## Architecture and stack
-
-Default for an empty repository:
-- Python FastAPI API and a separately runnable Python ingestion worker.
-- PostgreSQL, SQLAlchemy, Alembic migrations.
-- React, TypeScript, Vite frontend.
-- Local evidence storage through a storage interface.
-- Docker Compose for API, worker, database, and frontend.
-- Python package management with a lockfile; npm with a lockfile for frontend.
-- Structured logs, OpenAPI, environment-based configuration.
-
-Keep a modular monolith with a separate worker process. Do not add Kubernetes or unrelated microservices. Use PostgreSQL for durable state; add Redis only if a concrete implemented requirement needs it.
-
-Suggested layout (adjust to actual needs):
+Use these public handoff paths exactly. Internal Python module paths may adapt to the existing codebase.
 
 ```text
-backend/app/{api,core,db,models,schemas,services,adapters,detection,workers,storage}/
-backend/migrations/
-backend/tests/
-frontend/
-infra/
-scripts/
-sample_data/
-docs/
-AGENTS.md
-task.md
-compose.yaml
-.env.example
-README.md
+models/
+  README.md
+  people_vehicle/
+    manifest.yaml
+    inference.yaml
+    classes.json
+    tracker.yaml
+    scenarios.yaml
+    MODEL_CARD.md
+    evaluation.json
+    weights/
+      .gitkeep
+      best.pt                 # supplied by AI 1, ignored by Git
+  fire_smoke/
+    manifest.yaml
+    inference.yaml
+    classes.json
+    scenarios.yaml
+    MODEL_CARD.md
+    evaluation.json
+    weights/
+      .gitkeep
+      best.pt                 # supplied by AI 2, ignored by Git
 ```
 
-Document the API-worker boundary explicitly. Frame buffers inside a worker are not magically accessible to API processes. Implement a concrete latest-frame handoff, such as atomically replaced JPEGs and metadata on a shared local volume. Keep video frames out of database rows. Persist incidents, configuration, and worker heartbeats in PostgreSQL.
+Do not create fake/empty .pt files. Provide valid configuration templates with explicit not-provided evaluation/provenance fields. Do not invent hashes, training runs, metrics, or licenses. Metadata describing runtime capabilities and actual package defaults must be concrete even when weights are absent.
 
-## Phase 1 — repeatable infrastructure
+Root model directory is resolved relative to the repository, not the shell working directory, with optional VIGILON_MODEL_DIR override. Package-relative paths resolve relative to each manifest. Verify Windows, Linux, and Compose mapping semantics. Mount packages read-only in the worker container and keep writable caches/evidence elsewhere. Dependencies, optional CUDA setup, and cache location must be documented. Inserting model weights must not require rebuilding an image.
 
-- Dockerfiles and Compose with health checks, persistent database/evidence volumes, and appropriate dependency readiness.
-- Bind user-facing development ports to localhost by default; database need not be exposed to the host.
-- Explicit migration command/service. Do not have API and worker race to apply migrations.
-- Idempotent administrator bootstrap and separate demo-seeding commands.
-- `.env.example` with placeholders; no fixed default passwords or committed secrets.
-- A setup script that generates required local secrets without printing them and does not overwrite existing configuration.
-- PowerShell startup instructions for Windows/Docker Desktop and shell instructions for Linux.
-- Dependencies locked to compatible versions; avoid floating `latest` images.
-- Graceful shutdown and resource cleanup; bounded/rotated logs.
-- Local data, evidence, credentials, downloaded models, and generated media excluded from Git.
+Commit configuration, templates, docs, and .gitkeep. Ignore weights, training datasets, generated video, run outputs, and secrets. Preserve existing assets; do not delete them.
 
-## Phase 2 — source adapters and ingestion
+## Model-package schema and validation
 
-Define a typed source adapter interface and implement:
-1. Synthetic source with changing frames and controllable deterministic scenarios.
-2. Local video file adapter, with clear EOF/replay behavior.
-3. Real RTSP adapter, also usable with an NVR channel exposing RTSP.
+Create a versioned schema and concrete examples. manifest.yaml includes:
+- schema_version, module_id, package_version, adapter_id.
+- task: detect, framework/runtime identifiers, tested/required runtime compatibility.
+- weights relative path and optional expected SHA-256.
+- paths to inference/class/scenario metadata and optional tracker configuration.
+- supported events and model-card/evaluation references.
 
-ONVIF discovery is not required. Document an extension point for authorized capability/stream lookup. Explain analog-camera-through-recorder compatibility and vendor-cloud-only limitations honestly.
+Initial registered adapter IDs should correspond to built-in reviewed people/vehicle and fire/smoke plugins. Manifest data must not specify arbitrary import paths, executable commands, or pip installs.
 
-Source configuration includes name, location, source type, enabled state, credentials/connection configuration, processing FPS, resize limit, timeout, and bounded reconnect backoff.
+classes.json explicitly maps numeric checkpoint class IDs to canonical labels. On load, validate against checkpoint names. Preserve original names separately when aliases such as motorbike → motorcycle are deliberately configured. Never assume car has a fixed numeric index or fire is always class 0. Fail on mismatches/duplicates/unsupported scenario requirements with actionable errors.
 
-Requirements:
-- Actual connect/read timeouts; prevent a blocked decoder from hanging worker shutdown indefinitely. Use a suitable decoding library or supervised subprocess and document the choice.
-- Bounded buffers; discard stale frames under load.
-- One source failing must not stop the others.
-- Maintain last successful frame time, connection state, reconnect count, processed/dropped frame counts, and useful redacted error categories.
-- Distinguish source connectivity from worker heartbeat and preview staleness.
-- Reload enabled/configuration changes through a documented mechanism without restarting the entire stack.
-- Initial single-worker operation is acceptable, but enforce ownership through a database lease/lock or equivalent so an accidental second worker cannot duplicate ingestion/incidents.
-- Release/recover source ownership on shutdown or worker death.
-- Do not infer a frozen feed merely from a visually static scene.
+inference.yaml supports validated input size, score threshold, NMS IoU, selected classes, device cpu/cuda/auto, and CPU fallback policy. Define configuration precedence; report effective settings and model version without sensitive source details. Reject unknown/invalid fields rather than silently ignoring them.
 
-RTSP inputs are administrator-only. Intentionally support authorized private LAN destinations through configurable policy. Validate allowed protocols/destinations, deny inappropriate metadata/service endpoints, and avoid shell interpolation. Local video paths must remain within an allowed media directory. Do not expose a generic arbitrary-URL proxy or unrestricted filesystem reader.
+scenarios.yaml holds explicit event defaults: required class labels, zone/line references, minimum observation duration, disappearance grace, cooldown, hysteresis where needed. Per-camera/job settings override allowed defaults. Validate geometry and scenario/module compatibility before starting.
 
-## Phase 3 — preview, zones, and rules
+Two-stage validation:
+1. Metadata validation without deserializing weights: file existence, containment, schema, metadata, optional checksum, and declared readiness.
+2. Runtime validation of a trusted local checkpoint: load with the supported library, check task/class mapping, warm up on a controlled image, validate outputs, release resources.
 
-Implement authenticated latest-JPEG preview with timestamps. Reuse ingestion frames, not a new upstream connection per viewer. Browser RTSP playback is not assumed. Display offline/stale/disabled states accurately.
+Treat .pt files as executable/trusted artifacts: load only team-approved local packages. Do not auto-download weights or accept arbitrary public checkpoint uploads. Do not globally monkey-patch safe-loading behavior. Checksum verifies integrity, not trust. Report unsupported checkpoint errors clearly.
 
-Zone editor:
-- Draw a rectangle or polygon on the preview.
-- Save normalized coordinates and validate geometry.
-- Render correctly when the preview is resized/letterboxed.
-- Link zones to supported rule types.
+Status must distinguish MISSING_WEIGHTS, INVALID_CONFIG, UNSUPPORTED_MODEL, DEPENDENCY_MISSING, READY, LOADING, RUNNING, ERROR, DISABLED as appropriate. READY requires successful runtime load validation; metadata-only validation is not READY. Missing real weights never activates a dummy model silently.
 
-Rule configuration:
-- Enabled state, event type, zone, confidence threshold where applicable.
-- Minimum duration, cooldown, monitoring schedule and explicit schedule timezone.
-- Validate incompatible settings rather than silently ignoring them.
+## Hub contract and implementation
 
-## Phase 4 — detection interfaces and deterministic demo
+Reuse/evolve existing schemas rather than creating disconnected parallel ones. Include schema versions and representative fixtures.
 
-Separate four responsibilities:
-1. Inference plugins.
-2. Temporal/rule evaluation.
-3. Incident deduplication/persistence.
-4. Notification delivery.
+FramePacket:
+- source_id, session_id/job_id, frame_id/sequence.
+- media timestamp for file playback; receive/capture timestamp for live with timestamp origin explicit.
+- original width/height, image data/reference, colorspace and relevant transform metadata.
+- stream discontinuity information when reconnect/seek/replay occurs.
 
-Define typed frame context and detection results containing camera ID, capture timestamp, frame dimensions, geometry, optional track ID, detector ID/version, optional confidence, and structured metadata.
+Detection:
+- canonical label, original class ID/name, score if provided.
+- bounding geometry in one documented coordinate convention.
+- optional track ID, model/package version, frame reference, simulation flag.
 
-Plugins must advertise availability and supported event types. An absent real detector must appear unavailable, not enabled with fake results. Real fall detection and obstruction detection require temporal reasoning, not just single-frame labels.
+EventCandidate:
+- stable event key, source/session/module/scenario identifiers.
+- lifecycle START/UPDATE/END or equivalent explicit semantics.
+- event type, start/last observed time, geometry, related track IDs, evidence-frame reference.
+- structured facts, score semantics, simulation flag; no invented calibrated probabilities.
 
-Provide explicitly named simulated plugins and reproducible scenarios for obstruction, person-down, and smoke/fire. Demo scenarios should generate visible synthetic evidence aligned with event metadata. Mark every resulting incident and relevant UI as SIMULATED. Never apply simulated detectors silently to real RTSP sources.
+Define lifecycle methods equivalent to:
+- load(package_config)
+- create_session(session_id, source_context, scenario_config)
+- process(frame_packet, session_context)
+- reset/close_session(session_id)
+- close()
 
-Deliver one complete vertical slice early: synthetic source → preview → rule → incident → snapshot → operator action → persistent history. Then finish the remaining interfaces.
+Separate immutable weights/runtime from mutable per-source/per-job tracker and rule state. Model sharing requires safe serialized inference or explicit synchronization. Do not share one persistent tracker between cameras. Reset on new job/seek/replay/discontinuity according to documented policy.
 
-## Phase 5 — incidents, evidence, and notifications
+Hub responsibilities:
+- Built-in plugin registry and package catalog.
+- Enable selected modules per source/job.
+- Bounded scheduling and resource lifecycle.
+- Isolate a module failure from unrelated modules/sources.
+- Safe load/unload with explicit reload after replacing package files; no unsafe live hot swap.
+- Record package version/config revision for each session/event.
+- Handle cancellation and graceful shutdown without orphan workers or leaked GPU memory.
+- Preserve the existing worker ownership mechanism; do not launch a competing ingestion worker.
 
-Statuses: NEW, ACKNOWLEDGED, RESOLVED, FALSE_ALARM. Severity is independent of status.
+LIVE policy: bounded queues, prefer latest frames, count dropped frames, measure backlog. FILE policy: ordered processing with backpressure; no silent live-style dropping. Explicit sampling is allowed but must report coverage/FPS and use media timestamps. A cancelled/failed/partially processed file must not be reported complete or event-free.
 
-Persist:
-- Camera/location, type, first/last observed time.
-- Status/severity and simulation flag.
-- Detector/rule version or configuration snapshot sufficient to interpret the event.
-- Snapshot reference and structured evidence metadata.
-- Actor, timestamp, notes, and append-only transition history.
+Use monotonic elapsed-time handling for live durations with UTC display timestamps; use media time for file durations. Handle missing observations/disconnects without accumulating fictitious continuous presence. Keep preview independent of slow inference.
 
-Implement server-side transition validation and concurrency-safe updates. Define deduplication by source/rule/event/track or zone as appropriate. A continuing event should update one incident. Explicitly define what happens when a resolved event persists or recurs; do not reopen on every frame. Manual resolution and scene-clear evidence are distinct concepts.
+## Implement initial real plugins and scenarios
 
-Evidence:
-- Capture a snapshot corresponding to the triggering observation, not an unrelated later frame.
-- Authenticated serving through the API; no public static evidence directory.
-- Safe generated filenames and path traversal protection.
-- Configurable retention cleanup for files and references; keep audit history indicating expired evidence.
-- Extension interface for clips, but snapshot-only is acceptable and must be documented as such.
+### People/vehicle
 
-Notifications:
-- Implement durable in-app notifications linked to incidents.
-- Deduplicate updates to avoid notification floods.
-- Provide interfaces for later external channels; unimplemented channels must not report delivery success.
-- Optional escalation can remain on the roadmap unless implemented end-to-end.
+Implement a real Ultralytics detector adapter plus ByteTrack integration using the pinned library's supported APIs. Coordinate preprocessing and RGB/BGR conversion once. Verify output mapping through resize/letterbox to original geometry.
 
-## Phase 6 — authentication and frontend
+Implement:
+- Zone entry with explicit outside→inside transition policy, including behavior when an object first appears already inside.
+- Directional line crossing using trajectory history and hysteresis/debounce, not frame jitter.
+- Dwell duration in a zone with short-gap grace and reset rules.
 
-Implement real authentication with established password hashing/auth libraries. Prefer a simple same-origin session arrangement; if using cookies, handle CSRF and appropriate cookie attributes. Do not put camera credentials into frontend state, responses, logs, or error traces.
+Use configurable anchor geometry such as bottom-center, documented for the camera view. Dwell is not stationary-parking detection unless movement criteria are separately implemented. No cross-camera identity matching.
 
-Roles:
-- ADMIN: users, sources, rules, settings, and incident management.
-- OPERATOR: preview, evidence, incident review/actions; cannot retrieve source credentials or change administration settings.
+### Fire/smoke
 
-Encrypt persisted source secrets with a maintained library and an externally supplied key. Fail clearly if the key is missing. Document backup implications. Authenticate previews, evidence, and any event streaming as well as REST endpoints.
+Implement a real compatible detection-checkpoint adapter for canonical smoke/fire labels. Add temporal confirmation, short-gap tolerance, incident episode lifecycle, and cooldown. Define whether one active episode is aggregated per class/zone or another explicit key. Do not imply static single-frame boxes prove an emergency. No requirement to train a new model within this task.
 
-Build a usable frontend connected to real APIs:
-- Login/logout.
-- Overview: source/worker health and active incidents.
-- Cameras: create/edit/disable, connectivity check with a timeout, preview, zone/rule configuration.
-- Incidents: filter, pagination, evidence, acknowledge/resolve/false alarm, notes/history.
-- Clear source mode and simulation badges.
-- Empty/loading/error/stale states; no fabricated dashboard metrics.
-- Readable desktop-first responsive layout with straightforward navigation.
+### Deterministic demo
 
-Use UTC internally and timezone-aware datetimes. Default display timezone may be Asia/Bangkok and must be configurable. Monitoring schedules require explicit timezone conversion.
+Provide a separate explicit dummy plugin with controllable observations to exercise every scenario, including negatives. Every synthetic result must be labelled SIMULATED in API/UI/evidence metadata. Dummy mode must be opt-in and may not be the fallback for missing real checkpoints.
 
-## Phase 7 — verification and documentation
+## Application, evidence, API, and Visor integration
 
-Meaningful automated checks:
-- Temporal duration/cooldown and incident deduplication, including recurrence.
-- Status transitions, history, and role restrictions.
-- Credential redaction and unauthorized preview/evidence access.
-- Adapter failures, timeout/reconnect, EOF, and bounded frame behavior.
-- Zone validation and coordinate mapping.
-- Evidence retention and safe file access.
-- Demo happy-path integration with persisted state.
+Wire Hub into existing application flows; do not leave it as an isolated CLI library.
 
-Use deterministic fixtures; real hardware is not required. If practical, run a local test RTSP publisher with generated media to exercise the RTSP adapter. Clearly distinguish a local protocol test from testing an actual camera.
+Backend owns persistent incidents, audit, notifications, users, and files. Plugins produce typed events and do not write application tables. Provide a single event sink mapping stable START/UPDATE/END events into existing deduplication and incident workflow. Scene clearance and operator resolution remain distinct. Repeated updates must not create rows/notifications per frame. Define operator-resolved-but-still-observed and recurrence behavior.
 
-Run backend checks, frontend typecheck/build, migrations on a clean database, and the full Compose demo when the environment supports them. Add CI for the reproducible checks. Do not broaden testing endlessly once the specified behavior is sufficiently verified.
+Evidence must match the triggering frame. An event cannot simply refer to the latest JPEG after it has been overwritten. Implement bounded pinned/copy-on-event evidence handoff or equivalent. Protect evidence access and preserve existing retention semantics.
 
-Required documentation:
-- README.md: exact commands from a fresh clone to a working demo, camera connection steps, troubleshooting.
-- docs/ARCHITECTURE.md: data flow, process boundaries, source ownership, failure behavior.
-- docs/CAMERA_COMPATIBILITY.md: interfaces/codecs actually supported or tested, RTSP/NVR prerequisites, Docker host/LAN networking limitations.
-- docs/DETECTION_PLUGINS.md: contract, example integration, testing, model/license provenance requirements.
-- docs/SECURITY.md: secrets, permissions, evidence retention, local deployment boundary.
-- docs/IMPLEMENTATION_STATUS.md: implemented+verified / implemented+unverified / simulated / planned.
-- docs/ROADMAP.md: next real detector, evaluation data, notification integration, clip support, deployment hardening.
+Add/integrate APIs for:
+- Module catalog, metadata/status/errors, validation and reload (admin-only mutations).
+- Assigning modules/scenarios and zones/lines to sources/jobs.
+- File job creation, progress, cancellation, results, and failure details.
+- Hub status: processing rate, drops, queue depth, inference latency, active sessions and failures.
 
-## AGENTS.md requirements
+Do not invent endpoint paths without checking existing routes. Record implemented endpoints in docs/OpenAPI. Long analysis runs in workers, not request handlers. Prevent duplicate file-job execution and define interrupted-job recovery/failure behavior.
 
-Write concise repository-specific instructions for future Codex sessions. Include:
-- Vigilon's product purpose and the existing-CCTV compatibility principle.
-- Actual folder map and component responsibilities.
-- Exact verified install, startup, migration, bootstrap, test, lint, and build commands.
-- Coding conventions and API/schema/migration rules.
-- Detector/source adapter contracts and temporal-processing boundaries.
-- Demo-versus-real separation and honest capability reporting.
-- Credential, evidence, authentication, and data-handling conventions.
-- Requirement to update relevant docs when implementation changes.
-- Preserve user changes; never erase data, reset Git, or deploy publicly as a routine step.
-- Avoid speculative abstractions, placeholder-only implementations, and unnecessary global tooling.
-- How to update implementation status and provide a useful handoff.
+Visor minimum:
+- Show available/unavailable modules and actionable missing-file paths.
+- Let users select compatible modules and configure scenarios with source/job zones and directional lines.
+- Live: real preview, module health, event list and evidence.
+- File: authorized upload/import, progress, cancel, event timeline and seek to event time in browser-playable input.
+- Authenticate source/video/evidence routes; bounded file uploads/import roots.
+- Distinguish decode support from browser playback support. Report unsupported browser codecs or provide a documented controlled preview conversion; never claim arbitrary codecs play in browsers.
+- Show missing weights as unavailable, not zero detections or success.
+- Preserve existing plain JavaScript UI unless the repository has already changed. No unrelated visual rewrite.
 
-Do not copy this entire task into AGENTS.md. Do not invent commands or claim infrastructure exists before implementing it. Preserve applicable existing instructions when updating the file.
+## Developer CLI and templates
+
+Implement commands under the existing app.commands CLI or a compatible subcommand structure. Document exact commands that actually exist for:
+- list-models
+- validate-model <module_id> (metadata and runtime modes)
+- reload-model <module_id> safely in the relevant runtime
+- analyze-video with input, selected modules, scenario configuration, and output directory
+- hub-self-test using explicitly simulated fixtures
+
+These are required capabilities; adapt flag syntax to the current CLI consistently. No undocumented pretend commands. Analyze-video must exercise the same Hub/plugins as the application, not a separate throwaway implementation.
+
+Provide a delivery checklist and generation/validation helper for model packages. Creating templates must never overwrite teammates' weights or existing populated configuration. Package reload should require deliberate action, reject mixed/incomplete file updates, and preserve the last valid version or leave an explicit failure state.
+
+## Verification
+
+Run focused tests for:
+- Missing weights, malformed manifest, wrong class map/task, path escape and checksum mismatch.
+- CPU operation and explicit CUDA-unavailable behavior without pretending GPU tests passed.
+- Model-load reuse and isolation of tracker/rule state across two sources/jobs.
+- Module failure isolation and cancellation/shutdown.
+- Coordinate transforms and zones/lines.
+- Entry/crossing/dwell/fire episode timing, jitter, gaps, cooldown and recurrence.
+- Evidence correspondence and incident deduplication.
+- Ordered file processing and timestamp-based results independent of execution speed.
+- Access restrictions on catalog mutations, video and evidence.
+- Complete synthetic pipeline through actual API/worker/database and Visor where supported.
+
+Real inference tests: use a trusted compatible checkpoint already available. If none exists, implement the real adapter fully and test a small locally generated untrained model checkpoint through the actual installed model library where practical. Label this an integration smoke test, not a trained detector or accuracy test. Do not download production weights automatically or create fake performance metrics. Record which tests use mocks/synthetic observations versus actual model loading/inference.
+
+Docker/PostgreSQL tests should run if available; otherwise record the gap and verify independent local paths. Physical camera tests require explicit configured authorization; lack of camera access does not block file-mode completion.
+
+No training of large models is required. No external notifications, public deployment, facial identification, or large dataset acquisition in this task.
+
+## Documentation and team handoff
+
+Create/update:
+- models/README.md: exact placement and activation steps for AI 1 and AI 2.
+- docs/MODEL_PACKAGE_SPEC.md: complete validated schema and examples.
+- docs/AI_HUB.md: lifecycle, scheduling, isolation, runtime choices and failures.
+- docs/AI_INTEGRATION_CONTRACT.md: typed frame/detection/event contracts with fixtures.
+- docs/SCENARIO_RULES.md: precise temporal/spatial semantics.
+- docs/MODEL_HANDOFF.md: owner checklist, validation and integration steps.
+- README.md, AGENTS.md, docs/IMPLEMENTATION_STATUS.md: actual commands and verified scope.
+
+Document that AI owners submit best.pt PLUS accurate class mapping/config, model card/provenance, training/evaluation details and tested package/runtime versions. Once the package passes validation, the operator explicitly reloads/selects it. Only checkpoints compatible with the installed adapter are drop-in; another architecture needs a new reviewed plugin.
 
 ## Acceptance checklist
 
-- [ ] Root AGENTS.md accurately describes the implemented repository.
-- [ ] Compose/configuration/migrations/bootstrap are present and coherent.
-- [ ] Demo runs without a physical camera, external AI API, or downloaded model.
-- [ ] Live-changing demo preview comes from the worker ingestion path.
-- [ ] Real RTSP and file adapters exist with bounded failure/reconnect behavior.
-- [ ] Camera settings and zone/rule changes reach the worker.
-- [ ] Simulated incidents include matching snapshots and persist across restart.
-- [ ] Operator can acknowledge, resolve, and mark false alarms with history.
-- [ ] Repeated observations do not create notification/incident floods.
-- [ ] Auth and roles protect administration, preview, and evidence.
-- [ ] Worker/source health and stale preview are distinguishable.
-- [ ] Retention cleanup is implemented and documented.
-- [ ] Dependency locks, relevant tests, and CI exist.
-- [ ] README includes Windows/Docker Desktop and Linux instructions.
-- [ ] Documentation distinguishes verified, unverified, simulated, and planned work.
+- [ ] Existing repo preserved; no duplicate competing Hub or ingestion implementation.
+- [ ] Canonical model directories and valid templates created, with no fake weights.
+- [ ] One documented plugin contract and package validator.
+- [ ] Real Ultralytics detection adapters and ByteTrack integration implemented.
+- [ ] Entry, directional crossing, dwell and smoke/fire temporal rules implemented.
+- [ ] Per-camera/per-job state isolation and bounded scheduling.
+- [ ] Hub connects to existing ingestion, incident persistence and evidence paths.
+- [ ] LIVE and FILE mode use the same modules with correct time semantics.
+- [ ] Visor can inspect module readiness and select/configure supported modules.
+- [ ] File job progress/cancel/results and event navigation work for supported input.
+- [ ] Safe explicit package reload without rebuilding the application.
+- [ ] Demo works without real weights and is unmistakably simulated.
+- [ ] Missing real weights remain explicitly unavailable; no invented detections.
+- [ ] CLI, tests, model placement guide, and AGENTS documentation align with code.
 
-Only check an item when supported by implementation and appropriate evidence. If execution is blocked, leave runtime verification unchecked and state the blocker; do not pretend it passed.
+Do not mark runtime acceptance passed based on file existence, syntax checks, or mocked calls alone. Report HUB_INFRA_READY separately from REAL_MODEL_VALIDATED and CAMERA_VALIDATED. Infrastructure can be complete while specific real-model/device validation remains pending.
 
-## Final handoff
+## Final response
 
-Report concisely:
-1. Implemented components and important architecture decisions.
-2. Exact startup commands and local URL.
-3. Checks run with actual outcomes, including unavailable checks.
-4. Remaining limitations and any blockers.
-5. Next three concrete tasks toward real-camera inference.
+Report what was implemented, checks and actual outcomes, remaining blockers, exact commands to run self-test and import/activate each package, and the absolute model paths resolved from this checkout. Show both canonical relative paths:
+- models/people_vehicle/weights/best.pt
+- models/fire_smoke/weights/best.pt
 
-Proceed now: inspect, create/update AGENTS.md, implement the infrastructure and working demo, verify, and hand off. Do not stop at a plan.
+Explicitly state whether a trained model was used and which scenarios were validated with real inference. Do not stop at scaffolding or documentation; finish the working model-ready Hub and application integration within this scope.

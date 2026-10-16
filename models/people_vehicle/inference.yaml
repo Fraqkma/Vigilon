@@ -1,0 +1,6 @@
+imgsz: 640
+conf: 0.25
+iou: 0.45
+classes: null
+device: cpu
+allow_cpu_fallback: false

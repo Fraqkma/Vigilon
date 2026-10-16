@@ -74,6 +74,66 @@ def test_roles_zone_geometry_and_simulated_camera_secret_boundaries():
     update_body["zone"]={"type":"polygon","points":[[.2,.2],[.2,.2],[.2,.2]]}
     assert client.put(f"/api/rules/{rule.id}",json=update_body).status_code==422
 
+def test_ai_hub_catalog_assignment_and_admin_validation_are_authenticated():
+    client=TestClient(app);client.post("/api/auth/login",json={"username":"admin","password":"test-admin-password"})
+    catalog=client.get("/api/ai/modules")
+    assert catalog.status_code==200 and catalog.json()["hub_status"]=="HUB_INFRA_READY"
+    assert {x["status"] for x in catalog.json()["modules"]}=={"MISSING_WEIGHTS"}
+    model_source=client.post("/api/cameras",json={"name":"Model source","source_type":"rtsp","connection":"rtsp://viewer:secret@192.168.1.20:554/live"})
+    assert model_source.status_code==200
+    camera_id=model_source.json()["id"]
+    assigned=client.put(f"/api/cameras/{camera_id}/modules",json={"modules":["people_vehicle"]})
+    assert assigned.status_code==200 and assigned.json()["modules"]==["people_vehicle"]
+    validated=client.post("/api/admin/ai/modules/people_vehicle/validate",json={"mode":"runtime"})
+    assert validated.status_code==200 and validated.json()["status"]=="MISSING_WEIGHTS"
+    operator=TestClient(app);operator.post("/api/auth/login",json={"username":"operator","password":"test-operator-password"})
+    assert operator.post("/api/admin/ai/modules/people_vehicle/reload",json={}).status_code==403
+
+def test_file_job_ordered_progress_results_cancellation_and_path_boundary(monkeypatch):
+    import tempfile, threading
+    from pathlib import Path
+    from types import SimpleNamespace
+    import cv2
+    import numpy as np
+    from app.ai_hub import hub
+    from app import file_jobs
+    from app.file_jobs import _run_job, create_job, read_job
+    with tempfile.TemporaryDirectory(dir="sample_data") as folder:
+        video=Path(folder)/"ordered.avi"
+        writer=cv2.VideoWriter(str(video),cv2.VideoWriter_fourcc(*"MJPG"),5,(32,24))
+        assert writer.isOpened()
+        for value in (40,120,220):writer.write(np.full((24,32,3),value,dtype=np.uint8))
+        writer.release()
+        admin=TestClient(app);admin.post("/api/auth/login",json={"username":"admin","password":"test-admin-password"})
+        response=admin.post("/api/ai/jobs",json={"input_path":str(video.resolve()),"modules":["fire_smoke"],"scenario_config":{"fire_episode":{"minimum_observation_seconds":0}}})
+        assert response.status_code==200 and response.json()["status"]=="QUEUED"
+        media_response=admin.get(f"/api/ai/jobs/{response.json()['job_id']}/media")
+        assert media_response.status_code==200 and len(media_response.content)>0
+        anon=TestClient(app)
+        assert anon.get(f"/api/ai/jobs/{response.json()['job_id']}/media").status_code==401
+        operator=TestClient(app);operator.post("/api/auth/login",json={"username":"operator","password":"test-operator-password"})
+        assert operator.post("/api/ai/jobs",json={"input_path":str(video.resolve()),"modules":["fire_smoke"]}).status_code==403
+        package=SimpleNamespace(module_id="fire_smoke",status="READY",error=None,scenarios={"fire_episode":{"event_type":"FIRE_DETECTED","required_classes":["fire"]}},scenario_defaults={},trackers={},lock=threading.RLock())
+        monkeypatch.setitem(hub.packages,"fire_smoke",package)
+        monkeypatch.setattr(hub,"activate",lambda module:package)
+        monkeypatch.setattr(hub,"detect",lambda module,image,job,source:[{"label":"fire","class_id":1,"track_id":"t1","xyxy":[2,2,18,23],"simulated":False}])
+        monkeypatch.setattr(file_jobs,"report_worker_status",lambda package:None)
+        _run_job(response.json()["job_id"],threading.Event())
+        final=admin.get(f"/api/ai/jobs/{response.json()['job_id']}").json()
+        assert final["status"]=="COMPLETED" and final["progress_frames"]==3, final
+        result=admin.get(f"/api/ai/jobs/{response.json()['job_id']}/results").json()
+        assert result["frames"]==3 and result["timestamp_origin"]=="media"
+        assert result["events"] and result["events"][0]["frame_id"]==1 and result["events"][0]["simulated"] is False
+        assert admin.delete(f"/api/ai/jobs/{response.json()['job_id']}").status_code==204
+        queued=create_job(str(video.resolve()),["fire_smoke"])
+        cancelled=admin.post(f"/api/ai/jobs/{queued['job_id']}/cancel",json={})
+        assert cancelled.status_code==200 and cancelled.json()["status"]=="CANCELLED"
+        assert admin.get(f"/api/ai/jobs/{queued['job_id']}/results").json()["status"]=="CANCELLED"
+        assert admin.delete(f"/api/ai/jobs/{queued['job_id']}").status_code==204
+        try:create_job(str(Path(folder).parent.parent/"outside.avi"),["fire_smoke"])
+        except ValueError as error:assert "beneath VIGILON_MEDIA_DIR" in str(error)
+        else:raise AssertionError("media-root escape was accepted")
+
 def test_file_adapter_eof_and_path_boundary():
     import tempfile
     import cv2
@@ -87,7 +147,10 @@ def test_file_adapter_eof_and_path_boundary():
         writer.release()
         adapter=OpenCVAdapter("file",str(video),root,timeout=1)
         assert adapter.open()
-        assert [adapter.read().sequence for _ in range(3)]==[0,0,0]
+        frames=[adapter.read() for _ in range(3)]
+        assert [frame.sequence for frame in frames]==[1,2,3]
+        assert all(frame.timestamp_origin=="media" and frame.media_time is not None for frame in frames)
+        assert [frame.media_time for frame in frames]==sorted(set(frame.media_time for frame in frames))
         assert adapter.read() is None
         adapter.close()
         denied=OpenCVAdapter("file",str(root.parent/"outside.avi"),root,timeout=1)

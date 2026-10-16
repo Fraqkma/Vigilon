@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Protocol
 import ipaddress, os, socket, time
@@ -11,6 +12,9 @@ class Frame:
     width: int
     height: int
     sequence: int
+    timestamp_origin: str = "capture_utc"
+    media_time: float | None = None
+    discontinuity: str | None = None
 
 class SourceAdapter(Protocol):
     def open(self): ...
@@ -57,10 +61,19 @@ class OpenCVAdapter:
         return self.connection
     def open(self):
         self.cap=cv2.VideoCapture(self._validate(),cv2.CAP_FFMPEG,[cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,self.timeout*1000,cv2.CAP_PROP_READ_TIMEOUT_MSEC,self.timeout*1000])
+        raw_fps=float(self.cap.get(cv2.CAP_PROP_FPS) or 0);self.fps=raw_fps if math.isfinite(raw_fps) and raw_fps>0 else 0
+        self.sequence=0;self.last_media_time=-1.0
         return self.cap.isOpened()
     def read(self):
         ok,image=self.cap.read()
         if not ok: return None
-        h,w=image.shape[:2]; return Frame(image,time.time(),w,h,0)
+        h,w=image.shape[:2]; self.sequence+=1
+        media_time=None
+        if self.source_type=="file":
+            position=float(self.cap.get(cv2.CAP_PROP_POS_MSEC))/1000
+            step=1/max(self.fps,1)
+            media_time=position if position>self.last_media_time else max(self.last_media_time+step,(self.sequence-1)*step)
+            self.last_media_time=media_time
+        return Frame(image,time.time(),w,h,self.sequence,"media" if media_time is not None else "capture_utc",media_time)
     def close(self):
         if self.cap: self.cap.release(); self.cap=None

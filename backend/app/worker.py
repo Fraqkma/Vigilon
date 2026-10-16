@@ -7,6 +7,8 @@ from .adapters import OpenCVAdapter, SyntheticAdapter
 from .core import HANDOFF_DIR, MEDIA_DIR, fernet
 from .db import Camera, Lease, Rule, Session, now
 from .detection import FrameContext, SimulatedScenarioPlugin
+from .detection import DetectionResult
+from .ai_hub import hub, report_worker_status
 from .rules import TemporalRuleEvaluator
 from .services.incident_service import persist_detection
 
@@ -87,25 +89,79 @@ def process(camera,frame,evaluator):
     path=write_preview(camera.id,frame,"synthetic" if camera.simulated else "real",camera.resize_limit)
     camera.last_frame=datetime.fromtimestamp(frame.captured_at,timezone.utc);camera.status="ONLINE"
     context=FrameContext(camera.id,camera.last_frame.isoformat(),frame.width,frame.height,frame.sequence)
-    detections=SIMULATED_DETECTOR.detect(context,camera.scenario) if camera.simulated else []
-    detection=detections[0] if detections else None
-    if not detection:
-        evaluator.clear(camera.id)
+    if camera.simulated:
+        detections=SIMULATED_DETECTOR.detect(context,camera.scenario)
+        detection=detections[0] if detections else None
+        if not detection: evaluator.clear(camera.id); return
+        with Session.begin() as db:
+            rule=db.scalar(select(Rule).where(Rule.camera_id==camera.id,Rule.event_type==detection.event_type,Rule.enabled.is_(True)))
+            if rule and evaluator.accepts(camera,rule): persist_detection(db,camera,frame,path,detection,rule)
         return
-    with Session.begin() as db:
-        rule=db.scalar(select(Rule).where(Rule.camera_id==camera.id,Rule.event_type==detection.event_type,Rule.enabled.is_(True)))
-        if not rule:
-            evaluator.clear(camera.id)
-            return
-        if not evaluator.accepts(camera,rule):return
-        persist_detection(db,camera,frame,path,detection,rule)
+    with Session() as db:
+        rules=db.scalars(select(Rule).where(Rule.camera_id==camera.id,Rule.enabled.is_(True))).all()
+        selected=sorted({module for rule in rules for module in (rule.config or {}).get("modules", [])})
+    # A module load or inference error is contained to this module and frame.
+    for module_id in selected:
+        try:
+            package=hub.activate(module_id)
+            report_worker_status(package)
+            if package.status not in ("READY","RUNNING"): continue
+            observations=hub.detect(module_id,frame.image,f"live-{camera.id}",camera.id)
+            report_worker_status(package)
+            present={item["label"] for item in observations}
+            for scenario_id,scenario in package.scenarios.items():
+                required=scenario.get("required_classes",[])
+                if scenario.get("class_mode","any")=="all" and not set(required)<=present: continue
+                for observation in observations:
+                    if observation["label"] not in required: continue
+                    event_type=scenario["event_type"]
+                    rule=next((r for r in rules if r.event_type==event_type),None)
+                    if not rule: continue
+                    track_id=str(observation["track_id"] if observation["track_id"] is not None else f"det-{observation['class_id']}")
+                    defaults=package.scenario_defaults
+                    if defaults.get("anchor","bottom_center")=="center":anchor=((observation["xyxy"][0]+observation["xyxy"][2])/2/frame.width,(observation["xyxy"][1]+observation["xyxy"][3])/2/frame.height)
+                    else:anchor=((observation["xyxy"][0]+observation["xyxy"][2])/2/frame.width,observation["xyxy"][3]/frame.height)
+                    minimum=float((rule.config or {}).get("minimum_observation_seconds",rule.min_duration))
+                    event_time=time.monotonic()
+                    zone=rule.zone.get("points") if rule.zone and event_type in ("ZONE_ENTRY","DWELL") else None
+                    line=(rule.config or {}).get("line") if event_type=="LINE_CROSSING" else None
+                    state=evaluator.scenario(camera.id,module_id,scenario_id,float(scenario.get("disappearance_grace_seconds",defaults.get("disappearance_grace_seconds",1))),float(scenario.get("cooldown_seconds",defaults.get("cooldown_seconds",10))))
+                    hysteresis=float(scenario.get("hysteresis_pixels",0))/max(frame.width,frame.height)
+                    dwell=scenario.get("dwell_seconds",minimum) if event_type in ("DWELL","SMOKE_DETECTED","FIRE_DETECTED","SMOKE_FIRE","PERSON_DETECTED","VEHICLE_DETECTED") else None
+                    candidates=state.update(track_id,anchor,event_time,zone=zone,line=line,direction=(rule.config or {}).get("direction",scenario.get("direction","A_TO_B")),dwell_seconds=dwell,minimum=minimum,event_prefix=f"{module_id}:{scenario_id}",hysteresis=hysteresis)
+                    confirmed=bool(candidates)
+                    if not confirmed: continue
+                    detection=DetectionResult(camera.id,camera.last_frame.isoformat(),frame.width,frame.height,event_type,
+                        {"type":"rectangle","xyxy":observation["xyxy"],"coordinate_space":"original_pixels"},
+                        observation["track_id"],
+                        f"vigilon.ultralytics.{module_id}",str(package.manifest["package_version"]),observation["score"],
+                        {"label":observation["label"],"class_id":observation["class_id"],"module_id":module_id,"scenario_id":scenario_id},False)
+                    with Session.begin() as db:
+                        db_rule=db.get(Rule,rule.id)
+                        if db_rule: persist_detection(db,camera,frame,path,detection,db_rule)
+        except Exception as exc:
+            log.exception("source=%s module=%s inference_failure=%s",camera.id,module_id,type(exc).__name__)
 
 def config_key(c): return (c.source_type,c.connection,c.secret,c.scenario,c.simulated,c.processing_fps,c.resize_limit,c.timeout_seconds,c.reconnect_min_seconds,c.reconnect_max_seconds)
+def process_hub_reload_requests():
+    for request in HANDOFF_DIR.glob("reload-*.json"):
+        module_id=request.stem.removeprefix("reload-")
+        try:
+            package=hub.reload(module_id)
+            report_worker_status(package)
+            log.info("module_reload module=%s status=%s error=%s",module_id,package.status,package.error or "none")
+        except Exception as exc:
+            report_worker_status(None,module_id,"ERROR",str(exc)[:300])
+            log.exception("module_reload module=%s status=ERROR category=%s",module_id,type(exc).__name__)
+        finally:
+            request.unlink(missing_ok=True)
 def main():
-    acquire_lease();runners={};keys={};evaluator=TemporalRuleEvaluator()
+    from .file_jobs import FileJobRunner
+    acquire_lease();runners={};keys={};evaluator=TemporalRuleEvaluator();file_jobs=FileJobRunner();file_jobs.start()
     log.info("worker_started owner=%s",OWNER)
     try:
         while True:
+            process_hub_reload_requests()
             with Session() as db: cameras=db.scalars(select(Camera).where(Camera.enabled.is_(True))).all()
             active={c.id for c in cameras}
             for camera_id in set(runners)-active:
@@ -132,6 +188,9 @@ def main():
     finally:
         for runner in runners.values():runner.stop()
         for runner in runners.values():runner.join()
+        file_jobs_stopped=file_jobs.close()
         with Session.begin() as db:db.execute(update(Lease).where(Lease.id==1,Lease.owner==OWNER).values(expires=now(),owner=""))
+        if file_jobs_stopped:hub.close()
+        else:log.error("file_job_shutdown_timeout worker_exit=runtime_left_for_process_cleanup")
 
 if __name__=="__main__":main()

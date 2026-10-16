@@ -1,0 +1,19 @@
+schema_version: 1
+module_id: people_vehicle
+package_version: 0.1.0
+adapter_id: vigilon.ultralytics.people_vehicle
+task: detect
+runtime:
+  framework: ultralytics
+  tested_versions: []
+  minimum_version: "8.3.0"
+weights:
+  path: weights/best.pt
+  sha256: null
+inference: {path: inference.yaml}
+classes: {path: classes.json}
+tracker: {path: tracker.yaml}
+scenarios: {path: scenarios.yaml}
+supported_events: [PERSON_DETECTED, VEHICLE_DETECTED, ZONE_ENTRY, LINE_CROSSING, DWELL]
+model_card: {path: MODEL_CARD.md}
+evaluation: {path: evaluation.json}

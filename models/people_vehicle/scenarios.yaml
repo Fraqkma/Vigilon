@@ -1,0 +1,25 @@
+defaults:
+  anchor: bottom_center
+  minimum_observation_seconds: 1.0
+  disappearance_grace_seconds: 1.0
+  cooldown_seconds: 10.0
+scenarios:
+  person_zone_entry:
+    event_type: ZONE_ENTRY
+    required_classes: [person]
+    first_appearance_inside: ignore
+    minimum_observation_seconds: 1.0
+  vehicle_zone_entry:
+    event_type: ZONE_ENTRY
+    required_classes: [car, motorcycle, bus, truck]
+    first_appearance_inside: ignore
+    minimum_observation_seconds: 1.0
+  directional_crossing:
+    event_type: LINE_CROSSING
+    required_classes: [person, car, motorcycle, bus, truck]
+    direction: A_TO_B
+    hysteresis_pixels: 3
+  person_dwell:
+    event_type: DWELL
+    required_classes: [person]
+    dwell_seconds: 30

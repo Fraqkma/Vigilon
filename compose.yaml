@@ -29,6 +29,7 @@ services:
       VIGILON_MEDIA_DIR: /app/sample_data
       VIGILON_EVIDENCE_DIR: /data/evidence
       VIGILON_HANDOFF_DIR: /data/frames
+      VIGILON_MODEL_DIR: /models
       VIGILON_RETENTION_DAYS: ${VIGILON_RETENTION_DAYS:-30}
       VIGILON_COOKIE_SECURE: ${VIGILON_COOKIE_SECURE:-false}
     depends_on: {db: {condition: service_healthy}}
@@ -55,7 +56,7 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
     working_dir: /app/backend
     environment: *backend-env
-    volumes: [evidence_data:/data]
+    volumes: [evidence_data:/data, ./models:/models:ro, ./sample_data:/app/sample_data:ro]
     depends_on: {migrate: {condition: service_completed_successfully}}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
@@ -68,7 +69,7 @@ services:
     command: ["python", "-m", "app.worker"]
     working_dir: /app/backend
     environment: *backend-env
-    volumes: [evidence_data:/data]
+    volumes: [evidence_data:/data, ./models:/models:ro, ./sample_data:/app/sample_data:ro]
     depends_on: {migrate: {condition: service_completed_successfully}}
     stop_grace_period: 15s
   web:

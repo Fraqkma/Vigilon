@@ -1,4 +1,4 @@
-import base64, hashlib, hmac, json, logging, os, re, secrets, time, uuid
+import base64, hashlib, hmac, json, logging, mimetypes, os, re, secrets, time, uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, Query
@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from argon2 import PasswordHasher
 from .core import HANDOFF_DIR, EVIDENCE_DIR, SECRET_KEY, fernet
 from .db import Session, User, Role, Camera, Rule, Incident, IncidentStatus, Transition, Notification, Lease, now
+from .ai_hub import hub, PackageError, BUILTINS
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"),format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log=logging.getLogger("vigilon.api"); hasher=PasswordHasher(); app=FastAPI(title="Vigilon",version="0.1.0",description="Authorized existing-CCTV incident review. Simulated demo events are labeled.")
@@ -50,9 +51,10 @@ class CameraIn(BaseModel):
     def reconnect_bounds(self):
         if self.reconnect_min_seconds>self.reconnect_max_seconds:raise ValueError("Reconnect minimum must not exceed maximum")
         return self
-class RuleIn(BaseModel): event_type:str; enabled:bool=True; min_duration:int=Field(default=2,ge=1,le=3600); cooldown:int=Field(default=30,ge=0,le=86400); zone:dict={}; timezone:str="Asia/Bangkok"
+class RuleIn(BaseModel): event_type:str; enabled:bool=True; min_duration:int=Field(default=2,ge=1,le=3600); cooldown:int=Field(default=30,ge=0,le=86400); zone:dict={}; timezone:str="Asia/Bangkok"; line:list[list[float]]|None=None; direction:str="A_TO_B"
 class ActionIn(BaseModel): status:IncidentStatus; note:str=Field(default="",max_length=500)
 class UserIn(BaseModel): username:str=Field(min_length=3,max_length=80); password:str=Field(min_length=12,max_length=256); role:Role
+class FileJobIn(BaseModel): input_path:str=Field(min_length=1,max_length=2048); modules:list[str]=Field(min_length=1,max_length=2); scenario_config:dict={}
 
 @app.middleware("http")
 async def security(request,call_next):
@@ -65,6 +67,104 @@ async def security(request,call_next):
 def home(): return (FRONTEND/"index.html").read_text()
 @app.get("/api/health")
 def health(): return {"status":"ok","database":"configured","simulation":"SIMULATED scenarios only"}
+@app.get("/api/ai/modules")
+def ai_modules(user=Depends(current_user)):
+    """Authenticated model readiness catalog; metadata readiness is not runtime readiness."""
+    return {"hub_status":"HUB_INFRA_READY","real_model_validated":False,"camera_validated":False,"modules":hub.list()}
+def file_job_public(job):
+    public={key:job.get(key) for key in ("job_id","input_name","modules","status","progress_frames","total_frames","events","created_at","started_at","completed_at","error")}
+    if job.get("job_id"):
+        from .core import HANDOFF_DIR
+        public["cancel_requested"]=(HANDOFF_DIR/"file-jobs"/f"{job['job_id']}.cancel").exists()
+    return public
+@app.post("/api/ai/jobs")
+def create_ai_job(data:FileJobIn,user=Depends(require_admin)):
+    from .file_jobs import create_job
+    try:return file_job_public(create_job(data.input_path,data.modules,data.scenario_config))
+    except ValueError as exc:raise HTTPException(422,str(exc))
+@app.get("/api/ai/jobs")
+def list_ai_jobs(user=Depends(current_user)):
+    from .file_jobs import list_jobs
+    return [file_job_public(x) for x in list_jobs(100)]
+@app.get("/api/ai/jobs/{job_id}")
+def get_ai_job(job_id:str,user=Depends(current_user)):
+    from .file_jobs import read_job
+    row=read_job(job_id)
+    if not row:raise HTTPException(404,"FILE job not found")
+    return file_job_public(row)
+@app.post("/api/ai/jobs/{job_id}/cancel")
+def cancel_ai_job(job_id:str,user=Depends(require_admin)):
+    from .file_jobs import cancel_job,read_job
+    row=cancel_job(job_id)
+    if not row:raise HTTPException(404,"FILE job not found")
+    return file_job_public(read_job(job_id))
+@app.delete("/api/ai/jobs/{job_id}",status_code=204)
+def delete_ai_job(job_id:str,user=Depends(require_admin)):
+    from .file_jobs import delete_job
+    try:deleted=delete_job(job_id)
+    except ValueError as exc:raise HTTPException(409,str(exc))
+    if not deleted:raise HTTPException(404,"FILE job not found")
+@app.get("/api/ai/jobs/{job_id}/results")
+def ai_job_results(job_id:str,user=Depends(current_user)):
+    from .file_jobs import read_job,result_path
+    row=read_job(job_id)
+    if not row:raise HTTPException(404,"FILE job not found")
+    path=result_path(job_id)
+    if not path.is_file():raise HTTPException(404,"Results are not available yet")
+    return json.loads(path.read_text(encoding="utf-8"))
+@app.get("/api/ai/jobs/{job_id}/media")
+def ai_job_media(job_id:str,user=Depends(current_user)):
+    from .file_jobs import read_job
+    from .core import MEDIA_DIR
+    row=read_job(job_id)
+    if not row:raise HTTPException(404,"FILE job not found")
+    path=Path(row["input_path"]).resolve()
+    if not path.is_relative_to(MEDIA_DIR) or not path.is_file():raise HTTPException(404,"Source media unavailable")
+    return FileResponse(path,media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream",headers={"Cache-Control":"private, no-store","X-Playback-Note":"Browser codec support depends on the source media format."})
+@app.post("/api/admin/ai/modules/{module_id}/validate")
+def validate_ai_module(module_id:str, data:dict, user=Depends(require_admin)):
+    mode=data.get("mode","metadata")
+    if mode not in ("metadata","runtime"): raise HTTPException(422,"mode must be metadata or runtime")
+    try: return hub.validate(module_id,runtime=mode=="runtime").public()
+    except PackageError as exc: raise HTTPException(422,{"status":exc.status,"detail":str(exc)})
+@app.post("/api/admin/ai/modules/{module_id}/reload")
+def reload_ai_module(module_id:str,user=Depends(require_admin)):
+    if module_id not in BUILTINS: raise HTTPException(404,"Unknown built-in module")
+    request=HANDOFF_DIR/f"reload-{module_id}.json"; temp=request.with_suffix(".tmp")
+    temp.write_text(json.dumps({"module_id":module_id,"requested_at":utc_iso(now())}),encoding="utf-8");temp.replace(request)
+    return {"module_id":module_id,"status":"RELOAD_QUEUED","runtime":"worker","note":"The worker validates and swaps this package at its next control-loop boundary."}
+@app.put("/api/cameras/{camera_id}/modules")
+def assign_ai_modules(camera_id:int,data:dict,user=Depends(require_admin)):
+    modules=data.get("modules")
+    if not isinstance(modules,list) or len(modules)>len(BUILTINS) or len(set(modules))!=len(modules) or any(m not in BUILTINS for m in modules):
+        raise HTTPException(422,"modules must be a unique list of built-in module IDs")
+    with Session.begin() as db:
+        camera=db.get(Camera,camera_id)
+        if not camera: raise HTTPException(404,"Camera not found")
+        if camera.simulated: raise HTTPException(422,"Real model modules cannot be assigned to simulated sources")
+        if camera.source_type!="rtsp": raise HTTPException(422,"Live module assignment requires an RTSP/RTSPS source; use analyze-video for ordered FILE analysis")
+        rules=db.scalars(select(Rule).where(Rule.camera_id==camera_id)).all()
+        existing={r.event_type for r in rules}
+        for rule in rules: rule.config={**(rule.config or {}),"modules":modules}
+        for module in modules:
+            try: package=hub.validate(module,runtime=False)
+            except PackageError as exc: raise HTTPException(422,str(exc))
+            for event_type in package.manifest["supported_events"]:
+                if event_type not in existing:
+                    scenario=next((value for value in package.scenarios.values() if value["event_type"]==event_type),{})
+                    minimum=int(scenario.get("minimum_observation_seconds",package.scenario_defaults.get("minimum_observation_seconds",2)))
+                    cooldown=int(scenario.get("cooldown_seconds",package.scenario_defaults.get("cooldown_seconds",30)))
+                    db.add(Rule(camera_id=camera_id,event_type=event_type,enabled=True,min_duration=max(1,minimum),cooldown=max(0,cooldown),zone={},config={"module_id":module,"modules":modules}))
+                    existing.add(event_type)
+        return {"camera_id":camera_id,"modules":modules,"status":"CONFIGURED","note":"Explicitly reload the Hub in the worker after replacing package files."}
+@app.get("/api/cameras/{camera_id}/modules")
+def camera_ai_modules(camera_id:int,user=Depends(current_user)):
+    with Session() as db:
+        camera=db.get(Camera,camera_id)
+        if not camera: raise HTTPException(404,"Camera not found")
+        rules=db.scalars(select(Rule).where(Rule.camera_id==camera_id)).all()
+        selected=sorted({module for rule in rules for module in (rule.config or {}).get("modules",[])})
+        return {"camera_id":camera_id,"modules":selected,"simulated":camera.simulated}
 @app.get("/api/settings/public")
 def public_settings(user=Depends(current_user)):return {"display_timezone":os.getenv("VIGILON_TIMEZONE","Asia/Bangkok")}
 @app.post("/api/auth/login")
@@ -138,7 +238,7 @@ def preview(camera_id:int,user=Depends(current_user)):
 def rules(camera_id:int,user=Depends(current_user)):
     with Session() as db:
         if not db.get(Camera,camera_id): raise HTTPException(404,"Camera not found")
-        return [{"id":r.id,"event_type":r.event_type,"enabled":r.enabled,"min_duration":r.min_duration,"cooldown":r.cooldown,"zone":r.zone,"timezone":r.config.get("timezone","Asia/Bangkok")} for r in db.scalars(select(Rule).where(Rule.camera_id==camera_id))]
+        return [{"id":r.id,"event_type":r.event_type,"enabled":r.enabled,"min_duration":r.min_duration,"cooldown":r.cooldown,"zone":r.zone,"timezone":(r.config or {}).get("timezone","Asia/Bangkok"),"line":(r.config or {}).get("line"),"direction":(r.config or {}).get("direction","A_TO_B")} for r in db.scalars(select(Rule).where(Rule.camera_id==camera_id))]
 def valid_zone(z):
     if z.get("type") not in ("polygon","rectangle"): return False
     pts=z.get("points")
@@ -167,14 +267,16 @@ def valid_zone(z):
 def update_rule(rule_id:int,data:RuleIn,user=Depends(require_admin)):
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
     if not valid_zone(data.zone): raise HTTPException(422,"Zone must have normalized, nonzero-area polygon points")
+    if data.direction not in ("A_TO_B","B_TO_A"): raise HTTPException(422,"direction must be A_TO_B or B_TO_A")
+    if data.line is not None and (len(data.line)!=2 or any(len(p)!=2 or any(not 0<=v<=1 for v in p) for p in data.line) or data.line[0]==data.line[1]): raise HTTPException(422,"line must contain two distinct normalized endpoints")
     try: ZoneInfo(data.timezone)
     except (ZoneInfoNotFoundError,ValueError): raise HTTPException(422,"Invalid schedule timezone")
     with Session.begin() as db:
         rule=db.get(Rule,rule_id)
         if not rule: raise HTTPException(404,"Rule not found")
         if data.event_type!=rule.event_type: raise HTTPException(422,"Rule event type cannot be changed")
-        rule.enabled=data.enabled;rule.min_duration=data.min_duration;rule.cooldown=data.cooldown;rule.zone=data.zone;rule.config={"timezone":data.timezone}
-        return {"id":rule.id,"event_type":rule.event_type,"enabled":rule.enabled,"min_duration":rule.min_duration,"cooldown":rule.cooldown,"zone":rule.zone,"timezone":data.timezone}
+        rule.enabled=data.enabled;rule.min_duration=data.min_duration;rule.cooldown=data.cooldown;rule.zone=data.zone;rule.config={**(rule.config or {}),"timezone":data.timezone,"line":data.line,"direction":data.direction}
+        return {"id":rule.id,"event_type":rule.event_type,"enabled":rule.enabled,"min_duration":rule.min_duration,"cooldown":rule.cooldown,"zone":rule.zone,"timezone":data.timezone,"line":data.line,"direction":data.direction}
 @app.get("/api/incidents")
 def incidents(status:IncidentStatus|None=None,limit:int=Query(default=50,ge=1,le=100),offset:int=Query(default=0,ge=0),user=Depends(current_user)):
     with Session() as db:
