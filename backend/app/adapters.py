@@ -45,7 +45,8 @@ class OpenCVAdapter:
     def _validate(self):
         if self.source_type=="file":
             path=Path(self.connection).resolve()
-            if not path.is_relative_to(self.media_root): raise ValueError("media_path_denied")
+            roots=self.media_root if isinstance(self.media_root,(tuple,list)) else (self.media_root,)
+            if not any(path.is_relative_to(Path(root).resolve()) for root in roots): raise ValueError("media_path_denied")
             if not path.is_file(): raise ValueError("media_file_missing")
             return str(path)
         from urllib.parse import urlsplit

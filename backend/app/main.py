@@ -1,4 +1,4 @@
-import base64, hashlib, hmac, json, logging, mimetypes, os, re, secrets, time, uuid
+import base64, hashlib, hmac, json, logging, mimetypes, os, re, secrets, threading, time, uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, Query
@@ -8,12 +8,13 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, update, func
 from sqlalchemy.exc import IntegrityError
 from argon2 import PasswordHasher
-from .core import HANDOFF_DIR, EVIDENCE_DIR, SECRET_KEY, fernet
+from .core import HANDOFF_DIR, EVIDENCE_DIR, SECRET_KEY, fernet, MEDIA_DIR, MEDIA_ROOTS, IMPORT_DIR
 from .db import Session, User, Role, Camera, Rule, Incident, IncidentStatus, Transition, Notification, Lease, now
-from .ai_hub import hub, PackageError, BUILTINS
+from .ai_hub import hub, PackageError, BUILTINS, report_operation
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"),format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log=logging.getLogger("vigilon.api"); hasher=PasswordHasher(); app=FastAPI(title="Vigilon",version="0.1.0",description="Authorized existing-CCTV incident review. Simulated demo events are labeled.")
+PROBE_LIMIT=threading.BoundedSemaphore(2)
 FRONTEND=Path(__file__).resolve().parents[2]/"frontend"
 app.mount("/assets",StaticFiles(directory=FRONTEND),name="assets")
 
@@ -46,7 +47,7 @@ def csrf(request:Request):
 
 class Login(BaseModel): username:str=Field(min_length=1,max_length=80); password:str=Field(min_length=1,max_length=256)
 class CameraIn(BaseModel):
-    name:str=Field(min_length=1,max_length=120); location:str=""; source_type:str="synthetic"; connection:str=""; enabled:bool=True; scenario:str="normal"; processing_fps:int=Field(default=2,ge=1,le=15); resize_limit:int=Field(default=1280,ge=160,le=3840); timeout_seconds:int=Field(default=5,ge=1,le=30); reconnect_min_seconds:int=Field(default=1,ge=1,le=30); reconnect_max_seconds:int=Field(default=30,ge=2,le=300)
+    name:str=Field(min_length=1,max_length=120); location:str=Field(default="",max_length=160); source_type:str="synthetic"; connection:str=""; clear_connection:bool=False; enabled:bool=True; scenario:str="normal"; processing_fps:int=Field(default=2,ge=1,le=15); resize_limit:int=Field(default=1280,ge=160,le=3840); timeout_seconds:int=Field(default=5,ge=1,le=30); reconnect_min_seconds:int=Field(default=1,ge=1,le=30); reconnect_max_seconds:int=Field(default=30,ge=2,le=300)
     @model_validator(mode="after")
     def reconnect_bounds(self):
         if self.reconnect_min_seconds>self.reconnect_max_seconds:raise ValueError("Reconnect minimum must not exceed maximum")
@@ -55,6 +56,7 @@ class RuleIn(BaseModel): event_type:str; enabled:bool=True; min_duration:int=Fie
 class ActionIn(BaseModel): status:IncidentStatus; note:str=Field(default="",max_length=500)
 class UserIn(BaseModel): username:str=Field(min_length=3,max_length=80); password:str=Field(min_length=12,max_length=256); role:Role
 class FileJobIn(BaseModel): input_path:str=Field(min_length=1,max_length=2048); modules:list[str]=Field(min_length=1,max_length=2); scenario_config:dict={}
+class ConnectionTestIn(BaseModel): source_type:str; connection:str=Field(min_length=1,max_length=2048); timeout_seconds:int=Field(default=5,ge=1,le=10)
 
 @app.middleware("http")
 async def security(request,call_next):
@@ -71,8 +73,67 @@ def health(): return {"status":"ok","database":"configured","simulation":"SIMULA
 def ai_modules(user=Depends(current_user)):
     """Authenticated model readiness catalog; metadata readiness is not runtime readiness."""
     return {"hub_status":"HUB_INFRA_READY","real_model_validated":False,"camera_validated":False,"modules":hub.list()}
+
+@app.post("/api/cameras/test-connection")
+def test_camera_connection(data:ConnectionTestIn,user=Depends(require_admin)):
+    """Bounded probe using the exact configured address and the existing source policy."""
+    if data.source_type not in ("rtsp","file"):
+        raise HTTPException(422,"Connectivity test supports RTSP/RTSPS and local media only")
+    from .adapters import OpenCVAdapter
+    if not PROBE_LIMIT.acquire(blocking=False):raise HTTPException(429,"Two bounded source probes are already running")
+    outcome=[]
+    def probe():
+        adapter=None
+        try:
+            adapter=OpenCVAdapter(data.source_type,data.connection,MEDIA_ROOTS,timeout=data.timeout_seconds)
+            if not adapter.open():outcome.append({"reachable":False,"message":"Source did not open within the configured timeout."});return
+            frame=adapter.read();outcome.append({"reachable":bool(frame),"message":"Connected and decoded a frame." if frame else "Connected, but no frame was decoded."})
+        except Exception as exc:
+            category=str(exc) if isinstance(exc,ValueError) else type(exc).__name__;outcome.append({"reachable":False,"message":category[:120]})
+        finally:
+            if adapter:adapter.close()
+            PROBE_LIMIT.release()
+    thread=threading.Thread(target=probe,name="bounded-source-probe",daemon=True);thread.start();thread.join(data.timeout_seconds+2)
+    if thread.is_alive():return {"reachable":False,"message":"Probe exceeded the configured time limit and is closing."}
+    return outcome[0] if outcome else {"reachable":False,"message":"Probe ended without a result."}
+
+@app.post("/api/ai/imports")
+async def import_video(request:Request,user=Depends(require_admin)):
+    """Stream a bounded upload to the private import root and verify OpenCV decoding."""
+    from urllib.parse import unquote
+    maximum=512*1024*1024
+    existing=list(IMPORT_DIR.glob("*")) if IMPORT_DIR.exists() else []
+    if len(existing)>=100 or sum(item.stat().st_size for item in existing if item.is_file())+maximum>5*1024*1024*1024:raise HTTPException(409,"Private video import storage is full; remove imported videos before uploading")
+    length=request.headers.get("content-length")
+    if length and (not length.isdigit() or int(length)>maximum):raise HTTPException(413,"Video exceeds the 512 MiB upload limit")
+    raw_name=unquote(request.headers.get("x-file-name","video"))
+    suffix=Path(raw_name).suffix.lower()
+    if suffix not in {".mp4",".mov",".mkv",".avi",".webm",".m4v"}:raise HTTPException(415,"Supported video extensions: MP4, MOV, MKV, AVI, WEBM, M4V")
+    IMPORT_DIR.mkdir(parents=True,exist_ok=True);target=IMPORT_DIR/f"{uuid.uuid4().hex}{suffix}"
+    total=0
+    try:
+        with target.open("xb") as stream:
+            async for chunk in request.stream():
+                total+=len(chunk)
+                if total>maximum:raise HTTPException(413,"Video exceeds the 512 MiB upload limit")
+                stream.write(chunk)
+        if total==0:raise HTTPException(400,"Uploaded video is empty")
+        import cv2, math
+        capture=cv2.VideoCapture(str(target),cv2.CAP_FFMPEG,[cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,5000,cv2.CAP_PROP_READ_TIMEOUT_MSEC,5000])
+        try:
+            opened=capture.isOpened();ok,frame=capture.read() if opened else (False,None)
+            if not ok or frame is None:raise HTTPException(415,"Video could not be decoded by the configured OpenCV build")
+            fps=float(capture.get(cv2.CAP_PROP_FPS) or 0);count=float(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            width,height=frame.shape[1],frame.shape[0];duration=count/fps if fps>0 and math.isfinite(count) and count>0 else None
+            preview_path=IMPORT_DIR/f"{target.stem}.jpg"
+            if not cv2.imwrite(str(preview_path),frame):raise HTTPException(500,"Could not write private preview frame")
+        finally:capture.release()
+        return {"import_id":target.stem,"name":Path(raw_name).name[:200],"input_path":f"imports/{target.name}","bytes":total,"duration_seconds":duration,"width":width,"height":height,"browser_playback_mime":{ ".mp4":"video/mp4",".m4v":"video/mp4",".webm":"video/webm",".ogg":"video/ogg"}.get(suffix)}
+    except Exception:
+        target.unlink(missing_ok=True);(IMPORT_DIR/f"{target.stem}.jpg").unlink(missing_ok=True)
+        raise
 def file_job_public(job):
-    public={key:job.get(key) for key in ("job_id","input_name","modules","status","progress_frames","total_frames","events","created_at","started_at","completed_at","error")}
+    public={key:job.get(key) for key in ("job_id","input_name","modules","package_versions","simulated_demo","status","progress_frames","progress_media_time","total_frames","duration_seconds","fps","events","created_at","started_at","completed_at","error")}
     if job.get("job_id"):
         from .core import HANDOFF_DIR
         public["cancel_requested"]=(HANDOFF_DIR/"file-jobs"/f"{job['job_id']}.cancel").exists()
@@ -82,6 +143,36 @@ def create_ai_job(data:FileJobIn,user=Depends(require_admin)):
     from .file_jobs import create_job
     try:return file_job_public(create_job(data.input_path,data.modules,data.scenario_config))
     except ValueError as exc:raise HTTPException(422,str(exc))
+class SimulatedDemoJobIn(BaseModel):
+    scenario:str=Field(pattern="^(obstruction|person_down|smoke_fire)$")
+@app.post("/api/ai/demo-jobs")
+def create_simulated_demo_job(data:SimulatedDemoJobIn,user=Depends(require_admin)):
+    """Opt-in generated fixture only; never runs simulated observations on uploaded footage."""
+    from .adapters import SyntheticAdapter
+    from .file_jobs import create_job
+    import cv2
+    IMPORT_DIR.mkdir(parents=True,exist_ok=True)
+    target=IMPORT_DIR/f"visor-simulated-{uuid.uuid4().hex}.avi"
+    source=SyntheticAdapter(data.scenario);writer=cv2.VideoWriter(str(target),cv2.VideoWriter_fourcc(*"MJPG"),4.0,(960,540))
+    try:
+        if not writer.isOpened():raise HTTPException(503,"OpenCV cannot create the generated AVI demo fixture")
+        source.open()
+        for _ in range(12):
+            frame=source.read();writer.write(cv2.cvtColor(__import__("numpy").array(frame.image),cv2.COLOR_RGB2BGR))
+        writer.release()
+        job=create_job(f"imports/{target.name}",[],simulated_scenario=data.scenario)
+        job["generated_demo"]=True;job["generated_media_path"]=str(target.resolve())
+        from .file_jobs import _job_path,_write
+        _write(_job_path(job["job_id"]),job)
+        return file_job_public(job)
+    except HTTPException:
+        target.unlink(missing_ok=True);raise
+    except Exception as exc:
+        target.unlink(missing_ok=True)
+        if isinstance(exc,ValueError):raise HTTPException(422,str(exc))
+        raise HTTPException(503,f"Could not create generated demo job: {type(exc).__name__}")
+    finally:
+        writer.release();source.close()
 @app.get("/api/ai/jobs")
 def list_ai_jobs(user=Depends(current_user)):
     from .file_jobs import list_jobs
@@ -115,24 +206,47 @@ def ai_job_results(job_id:str,user=Depends(current_user)):
 @app.get("/api/ai/jobs/{job_id}/media")
 def ai_job_media(job_id:str,user=Depends(current_user)):
     from .file_jobs import read_job
-    from .core import MEDIA_DIR
+    from .core import MEDIA_ROOTS
     row=read_job(job_id)
     if not row:raise HTTPException(404,"FILE job not found")
     path=Path(row["input_path"]).resolve()
-    if not path.is_relative_to(MEDIA_DIR) or not path.is_file():raise HTTPException(404,"Source media unavailable")
+    if not any(path.is_relative_to(Path(root).resolve()) for root in MEDIA_ROOTS) or not path.is_file():raise HTTPException(404,"Source media unavailable")
     return FileResponse(path,media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream",headers={"Cache-Control":"private, no-store","X-Playback-Note":"Browser codec support depends on the source media format."})
+@app.get("/api/ai/imports/{import_id}/media")
+def imported_video_media(import_id:str,user=Depends(current_user)):
+    if not re.fullmatch(r"[0-9a-f]{32}",import_id):raise HTTPException(404,"Imported media not found")
+    paths=[path for path in IMPORT_DIR.glob(import_id+".*") if path.suffix.lower()!=".jpg"]
+    if len(paths)!=1 or not paths[0].is_file() or paths[0].resolve().parent!=IMPORT_DIR.resolve():raise HTTPException(404,"Imported media not found")
+    return FileResponse(paths[0],media_type=mimetypes.guess_type(paths[0].name)[0] or "application/octet-stream",headers={"Cache-Control":"private, no-store"})
+@app.get("/api/ai/imports/{import_id}/frame")
+def imported_video_frame(import_id:str,user=Depends(current_user)):
+    if not re.fullmatch(r"[0-9a-f]{32}",import_id):raise HTTPException(404,"Imported media not found")
+    path=IMPORT_DIR/f"{import_id}.jpg"
+    if not path.is_file() or path.resolve().parent!=IMPORT_DIR.resolve():raise HTTPException(404,"Preview frame unavailable")
+    return FileResponse(path,media_type="image/jpeg",headers={"Cache-Control":"private, no-store"})
+@app.delete("/api/ai/imports/{import_id}",status_code=204)
+def delete_imported_video(import_id:str,user=Depends(require_admin)):
+    if not re.fullmatch(r"[0-9a-f]{32}",import_id):raise HTTPException(404,"Imported media not found")
+    paths=list(IMPORT_DIR.glob(import_id+".*"));video=[path for path in paths if path.suffix.lower()!=".jpg"]
+    if len(video)!=1 or video[0].resolve().parent!=IMPORT_DIR.resolve():raise HTTPException(404,"Imported media not found")
+    from .file_jobs import list_jobs
+    if any(Path(row.get("input_path","")).resolve()==video[0].resolve() for row in list_jobs()):raise HTTPException(409,"This import is referenced by an analysis job. Delete its job history first.")
+    for path in paths:
+        if path.is_file() and path.resolve().parent==IMPORT_DIR.resolve():path.unlink(missing_ok=True)
 @app.post("/api/admin/ai/modules/{module_id}/validate")
 def validate_ai_module(module_id:str, data:dict, user=Depends(require_admin)):
     mode=data.get("mode","metadata")
     if mode not in ("metadata","runtime"): raise HTTPException(422,"mode must be metadata or runtime")
-    try: return hub.validate(module_id,runtime=mode=="runtime").public()
-    except PackageError as exc: raise HTTPException(422,{"status":exc.status,"detail":str(exc)})
+    try:
+        result=hub.validate(module_id,runtime=mode=="runtime").public();report_operation(module_id,"last_validation",result["status"],result.get("error"));return result
+    except PackageError as exc:
+        report_operation(module_id,"last_validation",exc.status,str(exc));raise HTTPException(422,{"status":exc.status,"detail":str(exc)})
 @app.post("/api/admin/ai/modules/{module_id}/reload")
 def reload_ai_module(module_id:str,user=Depends(require_admin)):
     if module_id not in BUILTINS: raise HTTPException(404,"Unknown built-in module")
-    request=HANDOFF_DIR/f"reload-{module_id}.json"; temp=request.with_suffix(".tmp")
-    temp.write_text(json.dumps({"module_id":module_id,"requested_at":utc_iso(now())}),encoding="utf-8");temp.replace(request)
-    return {"module_id":module_id,"status":"RELOAD_QUEUED","runtime":"worker","note":"The worker validates and swaps this package at its next control-loop boundary."}
+    requested=utc_iso(now());request=HANDOFF_DIR/f"reload-{module_id}.json"; temp=request.with_suffix(".tmp")
+    temp.write_text(json.dumps({"module_id":module_id,"requested_at":requested}),encoding="utf-8");temp.replace(request);report_operation(module_id,"last_reload","RELOAD_QUEUED",requested_at=requested)
+    return {"module_id":module_id,"status":"RELOAD_QUEUED","requested_at":requested,"runtime":"worker","note":"The worker validates and swaps this package at its next control-loop boundary."}
 @app.put("/api/cameras/{camera_id}/modules")
 def assign_ai_modules(camera_id:int,data:dict,user=Depends(require_admin)):
     modules=data.get("modules")
@@ -143,6 +257,9 @@ def assign_ai_modules(camera_id:int,data:dict,user=Depends(require_admin)):
         if not camera: raise HTTPException(404,"Camera not found")
         if camera.simulated: raise HTTPException(422,"Real model modules cannot be assigned to simulated sources")
         if camera.source_type!="rtsp": raise HTTPException(422,"Live module assignment requires an RTSP/RTSPS source; use analyze-video for ordered FILE analysis")
+        readiness={row["module_id"]:row for row in hub.list()}
+        unavailable=[m for m in modules if readiness.get(m,{}).get("status") not in ("READY","RUNNING")]
+        if unavailable:raise HTTPException(409,{"detail":"Runtime-ready module required","modules":[readiness.get(m,{"module_id":m,"status":"UNKNOWN"}) for m in unavailable]})
         rules=db.scalars(select(Rule).where(Rule.camera_id==camera_id)).all()
         existing={r.event_type for r in rules}
         for rule in rules: rule.config={**(rule.config or {}),"modules":modules}
@@ -191,7 +308,13 @@ def overview(user=Depends(current_user)):
         lease=db.get(Lease,1)
         expiry=lease.expires.replace(tzinfo=timezone.utc) if lease and lease.expires.tzinfo is None else (lease.expires if lease else None)
         worker="ONLINE" if expiry and expiry>now() else "OFFLINE"
-        return {"worker":worker,"cameras":[camera_dict(x) for x in cameras],"active_incidents":active}
+        from .file_jobs import list_jobs
+        jobs=list_jobs(100)
+        return {"worker":worker,"cameras":[camera_dict(x) for x in cameras],"active_incidents":active,
+                "incident_counts":{status.value:db.scalar(select(func.count()).select_from(Incident).where(Incident.status==status)) or 0 for status in IncidentStatus},
+                "source_counts":{"online":sum(c.enabled and c.status=="ONLINE" for c in cameras),"offline":sum(c.enabled and c.status!="ONLINE" for c in cameras),"disabled":sum(not c.enabled for c in cameras)},
+                "recent_incidents":[incident_dict(db,x) for x in db.scalars(select(Incident).order_by(Incident.last_seen.desc()).limit(5))],
+                "jobs":{"running":sum(x["status"]=="RUNNING" for x in jobs),"queued":sum(x["status"]=="QUEUED" for x in jobs),"completed":sum(x["status"]=="COMPLETED" for x in jobs),"failed":sum(x["status"] in ("FAILED","PARTIAL") for x in jobs)},"modules":hub.list()}
 def camera_dict(c): return {"id":c.id,"name":c.name,"location":c.location,"source_type":c.source_type,"enabled":c.enabled,"simulated":c.simulated,"scenario":c.scenario if c.simulated else None,"processing_fps":c.processing_fps,"resize_limit":c.resize_limit,"timeout_seconds":c.timeout_seconds,"reconnect_min_seconds":c.reconnect_min_seconds,"reconnect_max_seconds":c.reconnect_max_seconds,"status":c.status,"error_category":c.error_category,"preview_stale":not c.last_frame or (now()-c.last_frame.replace(tzinfo=timezone.utc) if c.last_frame.tzinfo is None else now()-c.last_frame).total_seconds()>8,"last_frame":utc_iso(c.last_frame),"reconnects":c.reconnects,"processed":c.processed,"dropped":c.dropped}
 @app.get("/api/cameras")
 def cameras(user=Depends(current_user)):
@@ -215,6 +338,16 @@ def update_camera(camera_id:int,data:CameraIn,user=Depends(require_admin)):
         if not c: raise HTTPException(404,"Camera not found")
         if c.source_type!=data.source_type: raise HTTPException(422,"Changing source type requires creating a new camera")
         c.name=data.name;c.location=data.location;c.enabled=data.enabled;c.processing_fps=data.processing_fps;c.resize_limit=data.resize_limit;c.timeout_seconds=data.timeout_seconds;c.reconnect_min_seconds=data.reconnect_min_seconds;c.reconnect_max_seconds=data.reconnect_max_seconds
+        if c.source_type=="rtsp":
+            if data.connection:
+                if not data.connection.lower().startswith(("rtsp://","rtsps://")):raise HTTPException(422,"Only RTSP/RTSPS sources are supported")
+                c.secret=fernet.encrypt(data.connection.encode()).decode()
+            elif data.clear_connection:c.secret=""
+        elif c.source_type=="file" and data.connection:
+            from .adapters import OpenCVAdapter
+            try:OpenCVAdapter("file",data.connection,MEDIA_ROOTS,timeout=data.timeout_seconds)._validate()
+            except Exception:raise HTTPException(422,"File source must resolve to a file beneath an authorized media root")
+            c.connection=data.connection
         if c.simulated:
             if data.scenario not in ("normal","obstruction","person_down","smoke_fire"): raise HTTPException(422,"Unknown simulated scenario")
             c.scenario=data.scenario
@@ -278,10 +411,30 @@ def update_rule(rule_id:int,data:RuleIn,user=Depends(require_admin)):
         rule.enabled=data.enabled;rule.min_duration=data.min_duration;rule.cooldown=data.cooldown;rule.zone=data.zone;rule.config={**(rule.config or {}),"timezone":data.timezone,"line":data.line,"direction":data.direction}
         return {"id":rule.id,"event_type":rule.event_type,"enabled":rule.enabled,"min_duration":rule.min_duration,"cooldown":rule.cooldown,"zone":rule.zone,"timezone":data.timezone,"line":data.line,"direction":data.direction}
 @app.get("/api/incidents")
-def incidents(status:IncidentStatus|None=None,limit:int=Query(default=50,ge=1,le=100),offset:int=Query(default=0,ge=0),user=Depends(current_user)):
+def incidents(status:IncidentStatus|None=None,limit:int=Query(default=50,ge=1,le=100),offset:int=Query(default=0,ge=0),camera_id:int|None=None,event_type:str|None=None,severity:str|None=None,source_mode:str|None=None,start:str|None=None,end:str|None=None,search:str|None=Query(default=None,max_length=120),user=Depends(current_user)):
     with Session() as db:
-        q=select(Incident).order_by(Incident.last_seen.desc()).limit(limit).offset(offset)
+        if source_mode not in (None,"LIVE","SIMULATED"):raise HTTPException(422,"source_mode must be LIVE or SIMULATED")
+        q=select(Incident).join(Camera,Incident.camera_id==Camera.id).order_by(Incident.last_seen.desc())
         if status: q=q.where(Incident.status==status)
+        if camera_id:q=q.where(Incident.camera_id==camera_id)
+        if event_type:q=q.where(Incident.event_type==event_type)
+        if severity:q=q.where(Incident.severity==severity)
+        if source_mode=="SIMULATED":q=q.where(Incident.simulated.is_(True))
+        elif source_mode=="LIVE":q=q.where(Incident.simulated.is_(False))
+        if start or end:
+            try:
+                if start:
+                    start_at=datetime.fromisoformat(start.replace("Z","+00:00"))
+                    if start_at.tzinfo is None:raise ValueError("timezone required")
+                    q=q.where(Incident.last_seen>=start_at)
+                if end:
+                    end_at=datetime.fromisoformat(end.replace("Z","+00:00"))
+                    if end_at.tzinfo is None:raise ValueError("timezone required")
+                    q=q.where(Incident.last_seen<=end_at)
+            except ValueError:raise HTTPException(422,"Incident date filters must be ISO timestamps")
+        if search:
+            pattern=f"%{search.strip()}%";q=q.where((Camera.name.ilike(pattern))|(Camera.location.ilike(pattern))|(Incident.event_type.ilike(pattern)))
+        q=q.limit(limit).offset(offset)
         return [incident_dict(db,x) for x in db.scalars(q)]
 def incident_dict(db,i):
     c=db.get(Camera,i.camera_id)

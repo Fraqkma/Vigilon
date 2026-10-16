@@ -27,6 +27,7 @@ services:
       VIGILON_ADMIN_PASSWORD: ${VIGILON_ADMIN_PASSWORD:?Set admin password in .env}
       VIGILON_ALLOWED_RTSP_CIDRS: ${VIGILON_ALLOWED_RTSP_CIDRS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
       VIGILON_MEDIA_DIR: /app/sample_data
+      VIGILON_IMPORT_DIR: /data/imports
       VIGILON_EVIDENCE_DIR: /data/evidence
       VIGILON_HANDOFF_DIR: /data/frames
       VIGILON_MODEL_DIR: /models

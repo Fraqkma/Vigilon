@@ -18,7 +18,7 @@ The local CPU demo uses generated video and simulated events. Ultralytics detect
 
 ## Repository map and current implementation
 
-- `backend/app/main.py`: FastAPI routes, request validation, authentication/authorization, previews, evidence, and operator actions.
+- `backend/app/main.py`: FastAPI routes, request validation, authentication/authorization, bounded connection probes/video imports, previews, evidence, and operator actions.
 - `backend/app/db.py`, `backend/migrations/`: SQLAlchemy persistence and Alembic schema history. Use migrations for durable schema changes; do not replace them with `create_all`.
 - `backend/app/worker.py`: separate ingestion process, lease, source lifecycle, frame publication, detector/rule orchestration, and the bounded FILE job runner.
 - `backend/app/file_jobs.py`: persistent job records/results in the shared handoff volume, contained media paths, cancellation, and recovery.
@@ -28,15 +28,15 @@ The local CPU demo uses generated video and simulated events. Ultralytics detect
 - `backend/app/services/`: incident/evidence persistence and in-app notification behavior.
 - `backend/app/retention.py`: explicit evidence-retention cleanup command; no periodic scheduler currently invokes it.
 - `backend/tests/`: API, worker, persistence, evidence, permissions, geometry, and adapter checks.
-- `frontend/`: dependency-free JavaScript single-page operator interface. It is not React/Vite and has no package-manager build step.
+- `frontend/`: dependency-free JavaScript Visor SPA with six operational destinations and an authenticated worker-backed preview/job UI. It is not React/Vite and has no package-manager build step.
 - `compose.yaml`, `infra/`: local container configuration and Docker/Nginx assets.
 - `scripts/`: Windows/Linux environment setup and local API/worker smoke check.
 - `sample_data/`: generated demo media; keep real footage and evidence out of Git.
 - `docs/`: architecture, compatibility, security, detector contract, roadmap, and implementation evidence.
 
-The implemented demo includes login/logout, overview, source management, scenario selection, authenticated JPEG preview/evidence, normalized rectangle/polygon zone editing, rule minimum-duration/cooldown/timezone configuration, incident actions/history, and simulated in-app notification behavior. The zone editor and timezone setting exist; monitoring schedules are not evaluated. Full source settings/connectivity check, user-management UI, external notification delivery, clips, scheduled retention, password reset, and session revocation are not implemented. The real detector adapter exists, but this checkout has no model weights and no real inference validation. Consult `docs/IMPLEMENTATION_STATUS.md` for current evidence and limitations.
+The Visor workflows include login/logout, Overview, Live Monitoring, Video Analysis, Incidents, AI Modules, Settings, camera configuration and bounded connectivity tests, authenticated preview/evidence/import routes, normalized zone/line editors, incident actions/audit history, and persistent FILE jobs. The zone editor and timezone setting exist; monitoring schedules are not evaluated. User-management UI, external notification delivery, clips, scheduled retention, password reset, and session revocation are not implemented. The real detector adapter exists, but this checkout has no model weights and no real inference validation. Consult `docs/VISOR_IMPLEMENTATION.md` and `docs/IMPLEMENTATION_STATUS.md` for current verification and limitations.
 
-The AI Hub registers only `people_vehicle` and `fire_smoke` detection adapters. Treat `.pt` checkpoints as trusted executable artifacts; never fetch or activate them automatically. Metadata validation does not establish runtime readiness; runtime readiness does not establish accuracy. Assign live modules only to explicitly configured RTSP/RTSPS sources. `hub-self-test` and synthetic fixtures are explicitly simulated. FILE jobs use local files beneath `VIGILON_MEDIA_DIR`, are bounded to one analysis at a time and expose progress, cancellation, results and an authenticated event timeline/seek UI. No browser upload exists; in Compose, import files through the read-only `sample_data` mount. Check the status ledger before claiming real-model/browser-codec validation.
+The AI Hub registers only `people_vehicle` and `fire_smoke` detection adapters. Treat `.pt` checkpoints as trusted executable artifacts; never fetch or activate them automatically. Metadata validation does not establish runtime readiness; runtime readiness does not establish accuracy. Assign live modules only to explicitly configured runtime-ready RTSP/RTSPS sources. `hub-self-test` and synthetic fixtures are explicitly simulated. FILE jobs use ordered files from `VIGILON_MEDIA_DIR` or bounded private uploads under `VIGILON_IMPORT_DIR`, run in one background FILE worker, and expose media-position progress, cancellation, results and an authenticated timeline. Compose maps imports into the shared `/data` volume. Check the status ledger before claiming real-model/camera/browser-codec validation.
 
 ## Team ownership and integration
 

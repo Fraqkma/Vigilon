@@ -46,6 +46,9 @@ def test_demo_frame_to_authenticated_evidence_and_operator_history():
     assert client.post(f"/api/incidents/{incident['id']}/action",json={"status":"RESOLVED","note":"Scene checked"}).status_code==200
     updated=client.get("/api/incidents").json()[0]
     assert updated["status"]=="RESOLVED" and [x["to"] for x in updated["history"]]==["ACKNOWLEDGED","RESOLVED"]
+    assert any(item["id"]==incident["id"] for item in client.get("/api/incidents?source_mode=SIMULATED&search=Test%20demo").json())
+    assert client.get("/api/incidents?source_mode=UNKNOWN").status_code==422
+    assert client.get("/api/incidents?start=2026-01-01T00:00:00").status_code==422
     assert client.post(f"/api/incidents/{incident['id']}/action",json={"status":"FALSE_ALARM"}).status_code==409
     with Session() as db:
         assert db.scalar(select(Incident).where(Incident.id==incident["id"])) is not None
@@ -69,12 +72,15 @@ def test_roles_zone_geometry_and_simulated_camera_secret_boundaries():
         row=db.scalar(select(Camera).where(Camera.name=="Authorized RTSP"))
         assert row.connection=="" and row.secret!="" and "viewer" not in row.secret
         rule=db.scalar(select(Rule).where(Rule.camera_id==1))
+    saved_secret=row.secret
+    assert client.patch(f"/api/cameras/{row.id}",json={"name":row.name,"location":row.location,"source_type":"rtsp","connection":"","enabled":True,"scenario":"normal"}).status_code==200
+    with Session() as db:assert db.get(Camera,row.id).secret==saved_secret
     update_body={"event_type":"OBSTRUCTION","enabled":True,"min_duration":3,"cooldown":15,"zone":{"type":"rectangle","points":[[.1,.1],[.9,.1],[.9,.9],[.1,.9]]},"timezone":"Asia/Bangkok"}
     assert client.put(f"/api/rules/{rule.id}",json=update_body).status_code==200
     update_body["zone"]={"type":"polygon","points":[[.2,.2],[.2,.2],[.2,.2]]}
     assert client.put(f"/api/rules/{rule.id}",json=update_body).status_code==422
 
-def test_ai_hub_catalog_assignment_and_admin_validation_are_authenticated():
+def test_ai_hub_catalog_assignment_and_admin_validation_are_authenticated(monkeypatch):
     client=TestClient(app);client.post("/api/auth/login",json={"username":"admin","password":"test-admin-password"})
     catalog=client.get("/api/ai/modules")
     assert catalog.status_code==200 and catalog.json()["hub_status"]=="HUB_INFRA_READY"
@@ -82,12 +88,71 @@ def test_ai_hub_catalog_assignment_and_admin_validation_are_authenticated():
     model_source=client.post("/api/cameras",json={"name":"Model source","source_type":"rtsp","connection":"rtsp://viewer:secret@192.168.1.20:554/live"})
     assert model_source.status_code==200
     camera_id=model_source.json()["id"]
+    unavailable=client.put(f"/api/cameras/{camera_id}/modules",json={"modules":["people_vehicle"]})
+    assert unavailable.status_code==409 and "MISSING_WEIGHTS" in unavailable.text
+    from app.main import hub
+    monkeypatch.setattr(hub,"list",lambda:[{"module_id":"people_vehicle","status":"READY"},{"module_id":"fire_smoke","status":"MISSING_WEIGHTS"}])
     assigned=client.put(f"/api/cameras/{camera_id}/modules",json={"modules":["people_vehicle"]})
     assert assigned.status_code==200 and assigned.json()["modules"]==["people_vehicle"]
+    monkeypatch.undo()
     validated=client.post("/api/admin/ai/modules/people_vehicle/validate",json={"mode":"runtime"})
     assert validated.status_code==200 and validated.json()["status"]=="MISSING_WEIGHTS"
+    assert any(row.get("last_validation",{}).get("status")=="MISSING_WEIGHTS" for row in client.get("/api/ai/modules").json()["modules"])
+    assert client.post("/api/admin/ai/modules/people_vehicle/reload",json={}).json()["status"]=="RELOAD_QUEUED"
     operator=TestClient(app);operator.post("/api/auth/login",json={"username":"operator","password":"test-operator-password"})
     assert operator.post("/api/admin/ai/modules/people_vehicle/reload",json={}).status_code==403
+
+def test_bounded_video_import_preview_authorization_and_job_path(monkeypatch):
+    import tempfile
+    from pathlib import Path
+    import cv2, numpy as np
+    from app.core import IMPORT_DIR
+    with tempfile.TemporaryDirectory(dir="sample_data") as folder:
+        video=Path(folder)/"importable.avi"
+        writer=cv2.VideoWriter(str(video),cv2.VideoWriter_fourcc(*"MJPG"),5,(32,24))
+        assert writer.isOpened()
+        for value in (40,120,220):writer.write(np.full((24,32,3),value,dtype=np.uint8))
+        writer.release()
+        admin=TestClient(app);admin.post("/api/auth/login",json={"username":"admin","password":"test-admin-password"})
+        response=admin.post("/api/ai/imports",content=video.read_bytes(),headers={"X-File-Name":"hallway.avi","Content-Type":"application/octet-stream"})
+        assert response.status_code==200,response.text
+        imported=response.json()
+        assert imported["input_path"].startswith("imports/") and imported["width"]==32 and imported["height"]==24 and abs(imported["duration_seconds"]-0.6)<0.01
+        assert admin.get(f"/api/ai/imports/{imported['import_id']}/frame").status_code==200
+        assert admin.get(f"/api/ai/imports/{imported['import_id']}/media").status_code==200
+        assert TestClient(app).get(f"/api/ai/imports/{imported['import_id']}/frame").status_code==401
+        assert admin.post("/api/ai/imports",content=b"bad",headers={"X-File-Name":"../../bad.exe"}).status_code==415
+        job=admin.post("/api/ai/jobs",json={"input_path":imported["input_path"],"modules":["fire_smoke"]})
+        assert job.status_code==200 and job.json()["status"]=="QUEUED",job.text
+        assert admin.post(f"/api/ai/jobs/{job.json()['job_id']}/cancel",json={}).json()["status"]=="CANCELLED"
+        admin.delete(f"/api/ai/jobs/{job.json()['job_id']}")
+        (IMPORT_DIR/f"{imported['import_id']}.jpg").unlink(missing_ok=True)
+        (IMPORT_DIR/Path(imported["input_path"]).name).unlink(missing_ok=True)
+
+def test_camera_connectivity_probe_is_admin_only_and_redacts_source_url(monkeypatch):
+    from app.adapters import OpenCVAdapter
+    monkeypatch.setattr(OpenCVAdapter,"open",lambda self:True)
+    monkeypatch.setattr(OpenCVAdapter,"read",lambda self:object())
+    admin=TestClient(app);admin.post("/api/auth/login",json={"username":"admin","password":"test-admin-password"})
+    response=admin.post("/api/cameras/test-connection",json={"source_type":"rtsp","connection":"rtsp://viewer:private@192.168.1.20:554/live","timeout_seconds":1})
+    assert response.status_code==200 and response.json()["reachable"]
+    assert "viewer" not in response.text and "private" not in response.text
+    operator=TestClient(app);operator.post("/api/auth/login",json={"username":"operator","password":"test-operator-password"})
+    assert operator.post("/api/cameras/test-connection",json={"source_type":"rtsp","connection":"rtsp://viewer:private@192.168.1.20:554/live"}).status_code==403
+
+def test_generated_simulated_analysis_uses_persistent_file_worker():
+    client=TestClient(app);client.post("/api/auth/login",json={"username":"admin","password":"test-admin-password"})
+    response=client.post("/api/ai/demo-jobs",json={"scenario":"obstruction"})
+    assert response.status_code==200,response.text
+    job=response.json();assert job["status"]=="QUEUED" and job["input_name"].startswith("SIMULATED demo")
+    from app.file_jobs import _run_job,result_path,delete_job
+    import threading,json
+    _run_job(job["job_id"],threading.Event())
+    result=json.loads(result_path(job["job_id"]).read_text(encoding="utf-8"))
+    assert result["status"]=="COMPLETED" and result["simulated"] is True
+    assert result["events"] and all(event["simulated"] is True for event in result["events"])
+    assert client.get(f"/api/ai/jobs/{job['job_id']}/results").json()["events"]
+    assert delete_job(job["job_id"])
 
 def test_file_job_ordered_progress_results_cancellation_and_path_boundary(monkeypatch):
     import tempfile, threading
@@ -113,7 +178,7 @@ def test_file_job_ordered_progress_results_cancellation_and_path_boundary(monkey
         assert anon.get(f"/api/ai/jobs/{response.json()['job_id']}/media").status_code==401
         operator=TestClient(app);operator.post("/api/auth/login",json={"username":"operator","password":"test-operator-password"})
         assert operator.post("/api/ai/jobs",json={"input_path":str(video.resolve()),"modules":["fire_smoke"]}).status_code==403
-        package=SimpleNamespace(module_id="fire_smoke",status="READY",error=None,scenarios={"fire_episode":{"event_type":"FIRE_DETECTED","required_classes":["fire"]}},scenario_defaults={},trackers={},lock=threading.RLock())
+        package=SimpleNamespace(module_id="fire_smoke",status="READY",error=None,manifest={"package_version":"test"},scenarios={"fire_episode":{"event_type":"FIRE_DETECTED","required_classes":["fire"]}},scenario_defaults={},trackers={},lock=threading.RLock())
         monkeypatch.setitem(hub.packages,"fire_smoke",package)
         monkeypatch.setattr(hub,"activate",lambda module:package)
         monkeypatch.setattr(hub,"detect",lambda module,image,job,source:[{"label":"fire","class_id":1,"track_id":"t1","xyxy":[2,2,18,23],"simulated":False}])

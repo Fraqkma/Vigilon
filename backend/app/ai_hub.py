@@ -7,6 +7,7 @@ import math
 import os
 import re
 import threading
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,7 @@ class ModelPackage:
                 "weights_path": str(self.weights), "metadata_valid": self.status not in ("INVALID_CONFIG",),
                 "runtime_validated": self.status in ("READY", "RUNNING"),
                 "supported_events": self.manifest.get("supported_events", []),
+                "supported_scenarios": [{"scenario_id":key,"event_type":value.get("event_type"),"required_classes":value.get("required_classes",[])} for key,value in self.scenarios.items()],
                 "latency_ms": round(self.latency_ms, 2), "processed": self.processed}
 
 
@@ -276,9 +278,13 @@ class AIHub:
                 if status_file.is_file():
                     try:
                         worker=json.loads(status_file.read_text(encoding="utf-8"))
-                        row.update({k:worker[k] for k in ("status","error","runtime_validated","latency_ms","processed","package_version","weights_path") if k in worker})
+                        row.update({k:worker[k] for k in ("status","error","runtime_validated","latency_ms","processed","package_version","weights_path","supported_scenarios","worker_updated_at") if k in worker})
                         row["worker_status"]=worker.get("status")
                     except (OSError,ValueError): pass
+                operation_file=HANDOFF_ROOT/f"module-operations-{module}.json"
+                if operation_file.is_file():
+                    try:row.update(json.loads(operation_file.read_text(encoding="utf-8")))
+                    except (OSError,ValueError):pass
                 out.append(row)
             except PackageError as exc: out.append({"module_id":module,"status":exc.status,"error":str(exc),"runtime_validated":False})
         return out
@@ -318,12 +324,21 @@ class AIHub:
 
 hub = AIHub()
 
+def report_operation(module_id:str,operation:str,status:str,error:str|None=None,requested_at:str|None=None)->None:
+    if module_id not in BUILTINS or operation not in ("last_validation","last_reload"):return
+    HANDOFF_ROOT.mkdir(parents=True,exist_ok=True);target=HANDOFF_ROOT/f"module-operations-{module_id}.json"
+    try:body=json.loads(target.read_text(encoding="utf-8")) if target.is_file() else {}
+    except (OSError,ValueError):body={}
+    previous=body.get(operation,{})
+    body[operation]={"status":status,"error":error,"requested_at":requested_at or previous.get("requested_at"),"completed_at":None if status=="RELOAD_QUEUED" else datetime.now(timezone.utc).isoformat()}
+    temp=target.with_suffix(".tmp");temp.write_text(json.dumps(body),encoding="utf-8");temp.replace(target)
+
 
 def report_worker_status(package: ModelPackage | None, module_id: str | None = None, status: str | None = None, error: str | None = None) -> None:
     module=module_id or (package.module_id if package else None)
     if not module:return
     HANDOFF_ROOT.mkdir(parents=True,exist_ok=True)
     body=package.public() if package else {"module_id":module,"runtime_validated":False,"latency_ms":0,"processed":0}
-    body.update({"status":status or body.get("status","ERROR"),"error":error if error is not None else body.get("error")})
+    body.update({"status":status or body.get("status","ERROR"),"error":error if error is not None else body.get("error"),"worker_updated_at":datetime.now(timezone.utc).isoformat()})
     target=HANDOFF_ROOT/f"module-status-{module}.json";temp=target.with_suffix(".tmp")
     temp.write_text(json.dumps(body),encoding="utf-8");temp.replace(target)

@@ -8,7 +8,7 @@ from .core import HANDOFF_DIR, MEDIA_DIR, fernet
 from .db import Camera, Lease, Rule, Session, now
 from .detection import FrameContext, SimulatedScenarioPlugin
 from .detection import DetectionResult
-from .ai_hub import hub, report_worker_status
+from .ai_hub import hub, report_worker_status, report_operation
 from .rules import TemporalRuleEvaluator
 from .services.incident_service import persist_detection
 
@@ -146,12 +146,17 @@ def config_key(c): return (c.source_type,c.connection,c.secret,c.scenario,c.simu
 def process_hub_reload_requests():
     for request in HANDOFF_DIR.glob("reload-*.json"):
         module_id=request.stem.removeprefix("reload-")
+        requested_at=None
         try:
+            try:requested_at=json.loads(request.read_text(encoding="utf-8")).get("requested_at")
+            except (OSError,ValueError):requested_at=None
             package=hub.reload(module_id)
             report_worker_status(package)
+            report_operation(module_id,"last_reload",package.status,package.error,requested_at)
             log.info("module_reload module=%s status=%s error=%s",module_id,package.status,package.error or "none")
         except Exception as exc:
             report_worker_status(None,module_id,"ERROR",str(exc)[:300])
+            report_operation(module_id,"last_reload","ERROR",str(exc)[:300],requested_at)
             log.exception("module_reload module=%s status=ERROR category=%s",module_id,type(exc).__name__)
         finally:
             request.unlink(missing_ok=True)
