@@ -1,5 +1,9 @@
 # Implementation status
 
+## AI 2 data preparation kickoff (2026-10-22)
+
+Added `docs/FIRE_SMOKE_DATA_PREPARATION.md` and a blank source registry template under `docs/templates/`. The agreed scope is visible smoke/fire only, classes `0=smoke`, `1=fire`, separate YOLO26s weights, and Hub-owned event confirmation. The guide defines rights review, pilot annotation, grouped splits and delivery requirements. No dataset, weights, training runtime or accuracy has been validated in this step. Existing Hub packages and dependency pins were not modified. Next owner: AI 2 collects/reviews candidate data; Hub owner agrees a tested YOLO26-compatible runtime before delivery training.
+
 ## Latest local camera validation (2026-10-22)
 
 The local Windows environment was prepared using `.venv`, the locked dependencies and the repository SQLite migration workflow. `.env` is ignored and untracked. During bootstrap, the existing Fernet key was found malformed; the local app database was verified to have zero camera rows before replacing it. Other configured secrets were preserved. Admin bootstrap succeeded, and `python -m app.commands provision-camera` created one encrypted, enabled RTSP source (id 1) with simulation and AI off. Provisioning is explicit and idempotent; it does not run at application startup.
