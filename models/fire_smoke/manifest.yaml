@@ -6,7 +6,7 @@ task: detect
 runtime:
   framework: ultralytics
   tested_versions: []
-  minimum_version: "8.3.0"
+  minimum_version: "8.4.0"
 weights:
   path: weights/best.pt
   sha256: null

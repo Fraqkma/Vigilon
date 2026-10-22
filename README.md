@@ -90,7 +90,7 @@ node --check frontend/app.js
 
 ## Model-ready AI Hub
 
-The AI Hub accepts only reviewed Ultralytics detection checkpoints through the built-in `people_vehicle` and `fire_smoke` adapters. Place the owner-approved file at `models/people_vehicle/weights/best.pt` or `models/fire_smoke/weights/best.pt`, and update `classes.json`, scenarios, model card, evaluation, and optional checksum to match the checkpoint. The directories are mounted read-only in Compose and are not copied into the image, so adding/replacing weights does not require an image rebuild. The optional AI runtime is intentionally separate from the small CPU demo install. Install the matching CPU or CUDA PyTorch build for the target machine first, then `python -m pip install -r requirements-ai.lock`.
+The AI Hub accepts only reviewed Ultralytics detection checkpoints through the built-in `people_vehicle` and `fire_smoke` adapters. Place the owner-approved file at `models/people_vehicle/weights/best.pt` or `models/fire_smoke/weights/best.pt`, and update `classes.json`, scenarios, model card, evaluation, and optional checksum to match the checkpoint. The directories are mounted read-only in Compose and are not copied into the image, so adding/replacing weights does not require an image rebuild. The optional AI runtime is intentionally separate from the small CPU demo install and pins `ultralytics==8.4.0` for YOLO26 compatibility. Install the matching CPU or CUDA PyTorch and torchvision builds for the target machine first, then `python -m pip install -r requirements-ai.lock`; verify with `python -m pip check`.
 
 Windows activation/validation commands (run from repository root):
 

@@ -1,5 +1,11 @@
 # Implementation status
 
+## Ultralytics 8.4.0 runtime update (2026-10-22)
+
+Current AI runtime declaration is pinned exactly as `ultralytics==8.4.0` in `requirements-ai.lock`; package templates now require at least 8.4.0. Historical camera validation and earlier AI Hub validation records below are retained as records of the versions and conditions under which they were performed. Before this update, `.venv` had Python 3.13.0 but no PyTorch, torchvision, or Ultralytics build to preserve. After installing the AI requirements, the environment reports Python 3.13.0, Ultralytics 8.4.0, PyTorch 2.14.1+cpu, torchvision 0.29.1+cpu, CUDA build `None`/unavailable, and OpenCV 4.11.0. `pip check` passes. The AI lock holds `opencv-python` at the existing 4.11.0.86 release to avoid a transitive OpenCV 5 upgrade. No trusted `.pt` checkpoints are present; no real-model validation is claimed.
+
+Ultralytics 8.4.0 source was inspected at its tagged predictor and ByteTrack implementations. The predictor converts BGR NumPy inputs to RGB and normalizes them; `AIHub` now passes original BGR frames unchanged and a focused mocked regression test checks channel values at the `predict` boundary. The adapter's existing Results/ByteTrack calls match the 8.4.0 API shape. Focused adapter, ByteTrack, rule, metadata, and file-pipeline checks: **22 passed**, one existing Starlette/AnyIO deprecation warning. Metadata validation reports `MISSING_WEIGHTS` for both modules. This source and mocked-test evidence does not establish inference with a real checkpoint. No API or project Python process was running during the restart check. The change does not affect prior PermissionError, HEVC/browser playback, or camera resource observations.
+
 ## Latest local camera validation (2026-10-22)
 
 The local Windows environment was prepared using `.venv`, the locked dependencies and the repository SQLite migration workflow. `.env` is ignored and untracked. During bootstrap, the existing Fernet key was found malformed; the local app database was verified to have zero camera rows before replacing it. Other configured secrets were preserved. Admin bootstrap succeeded, and `python -m app.commands provision-camera` created one encrypted, enabled RTSP source (id 1) with simulation and AI off. Provisioning is explicit and idempotent; it does not run at application startup.
