@@ -3,6 +3,7 @@ from pathlib import Path
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="command",required=True)
     sub.add_parser("migrate"); b=sub.add_parser("bootstrap-admin"); b.add_argument("--username",default=os.getenv("VIGILON_ADMIN_USERNAME","admin")); b.add_argument("--password",default=os.getenv("VIGILON_ADMIN_PASSWORD")); s=sub.add_parser("seed-demo"); s.add_argument("--scenario",choices=["normal","obstruction","person_down","smoke_fire"],default="obstruction")
+    sub.add_parser("provision-camera",help="Create or reuse the opt-in RTSP source configured in local .env")
     sub.add_parser("list-models")
     t=sub.add_parser("init-model-package");t.add_argument("module_id");t.add_argument("--destination",required=True)
     v=sub.add_parser("validate-model");v.add_argument("module_id");v.add_argument("--mode",choices=["metadata","runtime"],default="metadata")
@@ -19,6 +20,13 @@ def main():
         config.set_main_option("script_location",str(backend/"migrations"))
         command.upgrade(config,"head")
         print("Database migrations applied.")
+    elif args.command=="provision-camera":
+        from .camera_setup import CameraSetupError, provision_from_environment
+        try:
+            result=provision_from_environment()
+        except CameraSetupError as exc:
+            raise SystemExit(str(exc)) from None
+        print(f"RTSP camera source id={result['camera_id']} status={result['status']}; AI remains disabled.")
     elif args.command=="bootstrap-admin":
         from argon2 import PasswordHasher
         from .db import bootstrap

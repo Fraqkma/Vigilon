@@ -1,259 +1,123 @@
-# Vigilon — AI Hub ready for teammate model packages
+# Vigilon / Visor: Real Camera Ingestion Validation
 
-## Mission
+## Objective and execution policy
 
-Implement this task end-to-end in the existing Vigilon repository. Deliver a working AI Hub, real Ultralytics inference adapters, deterministic integration tests, model-package templates, and operator integration so teammates can place supported weights and configuration into documented folders and run inference without modifying Hub internals.
+Inspect the existing repository first, then connect the existing camera through the existing API, worker, frame buffer and Visor. Complete a bounded real-camera validation and fix concrete integration defects only after the assessment is complete. Do not rebuild the architecture. This task authorizes local implementation fixes after assessment; it does not authorize changing camera/router configuration, installing global software, committing, pushing or deploying.
+
+Before editing code, write a concise assessment and proposed execution sequence to docs/CAMERA_INTEGRATION_ASSESSMENT.md and summarize it to the user. Continue with compatible, local, reversible fixes without requesting another routine approval. If a substantial architecture/API change appears necessary, describe the evidence and stop that change for a decision. Preserve unrelated work.
+
+## Current evidence supplied by the user (2026-10-22)
+
+- Camera: Hikvision DS-2CD1143G2-LIU, powered by TP-Link ES206GP PoE switch port 4.
+- Password recovered through Hikvision software recovery; not a confirmed hardware reset.
+- Camera activated; browser login and real live view work.
+- DHCP enabled; last camera IP 192.168.1.102, mask 255.255.255.0, gateway 192.168.1.1.
+- Last PC IP 192.168.1.180 on Ethernet, Windows 11. The machine executing this task may be different: verify reachability from the actual worker host.
+- HTTP port 80; RTSP port 554.
+- User verified VLC playback of rtsp://192.168.1.102:554/Streaming/Channels/101 with admin credentials.
+- Channel 102 is a candidate substream, NOT verified: rtsp://192.168.1.102:554/Streaming/Channels/102.
+- ONVIF is disabled/not tested; not a prerequisite for this RTSP milestone.
+- DHCP reservation, encoding details, time synchronization and long-run stability are not verified.
+- No evidence yet of real frames reaching the Vigilon backend or Visor.
+- The people/vehicle team reported improved fine-tuning metrics, but checkpoint availability, compatibility and runtime inference inside this repository remain unverified.
 
-This task supersedes the original jumpstart's implementation scope for this work session. Preserve existing architecture and functioning features. Do not regenerate the project. Read applicable AGENTS.md instructions, README, status documents, source code, and Git diff before editing. Respect the user's active Codex settings, installed skills, ECC/hooks, and available MCP tools. Do not change global settings, reinstall agent tooling, or bypass approvals. Use available documentation tools to verify APIs against versions actually selected and locked.
+Treat these as user-reported external checks, not checks you ran. Never claim VLC success establishes backend success. Do not use the previous camera IP 172.16.26.33.
 
-The deliverable is implementation, not a proposed architecture. Continue through code, migrations if needed, local execution, verification, documentation, and handoff. Do not commit or push unless separately instructed. Preserve unrelated work and local data.
+## Phase 1: Read-only repository assessment
 
-## Agreed method and team ownership
+1. Confirm repo root, branch and git status. Read applicable AGENTS.md, README, implementation-status documents, architecture, camera compatibility, security and AI Hub docs. Respect existing Codex/ECC settings and available tools; do not modify global settings, hooks or MCP configuration. Do not assume a named tool is available.
+2. Inspect actual code and pinned dependencies, not only documentation. Locate:
+   - Camera/source create/edit/probe APIs and credential encryption/redaction.
+   - RTSP adapter, decoder backend, transport options, connection/read timeouts and process/thread cleanup.
+   - Worker ownership/lease, per-source lifecycle, bounded buffers, timestamps and stale-frame handling.
+   - Worker-to-API preview publication, shared storage and authenticated preview access.
+   - Visor camera management and Live Monitoring, including loading/offline/stale states.
+   - Model registry/validation/reload and scenario-to-incident integration.
+   - Existing tests and documented Windows startup commands.
+3. Identify which pieces already exist, which have mock-only evidence, and concrete gaps. Reference actual repository paths. Keep FastAPI, the existing database setup and frontend stack unless a real blocker proves a change necessary.
+4. Establish acceptance checks before making fixes. Do not add new ONVIF, streaming servers, dashboards, adapters or database tables simply to run this task.
 
-- Python + PyTorch.
-- Ultralytics YOLO pretrained object-detection models; fine-tune only where needed.
-- CVAT labels exported in compatible YOLO detection format.
-- Training on an NVIDIA machine or Colab using reproducible scripts/configuration.
-- Dataset splits by recording/session/site, not adjacent random frames.
-- ByteTrack for people/vehicle tracking.
-- Python temporal/spatial rules for zone entry, directional line crossing, and dwell.
-- AI 1 owns people/vehicle weights, tracking, and its scenario module.
-- AI 2 owns fire/smoke weights, training data, and its scenario module.
-- AI 3 owns Hub runtime, plugin interfaces, scheduling, registration, and common tooling.
-- Compatibility owner owns source decoding, RTSP/file/synthetic adapters, timestamps, and preview handoff.
-- PM owns Visor, application APIs/database, infrastructure, and final integration.
+## Phase 2: Local setup and credentials
 
-Build the agreed initial modules and reusable rule utilities now so teammates can subsequently improve their modules without redesigning the Hub. Do not leave the functional integration for the PM to finish.
+- Use the current virtual environment and dependency locks. Inspect running services before starting anything; avoid duplicate ingestion workers and do not kill unrelated processes.
+- Prefer the currently functioning local database mode. Do not make Docker/PostgreSQL a prerequisite for a local SQLite camera test. Report environments not exercised.
+- Use the existing authenticated camera form to enter the password. The user must enter secrets locally; never request passwords in chat, command arguments, task files or screenshots. If unattended tooling needs a credential, use an existing secure mechanism or an ignored local secret file entered by the user; do not print its content.
+- Never log complete credential-bearing URLs. Redact credentials in errors, decoder stderr, reports and examples. Preserve encryption and existing password keep/clear semantics.
+- Preserve existing camera records; reuse or create one clearly named test source without duplicating it on reruns. Inspect existing URL/credential fields rather than assuming their schema.
+- If the host has no LAN access or credentials are missing, complete the assessment and useful local checks, then give the exact minimal user action required. Do not substitute a synthetic source and mark the physical camera passed.
 
-Vigilon supports LIVE monitoring and FILE analysis through the same modules. It adapts to existing authorized CCTV/NVR streams. A weights file alone is not a universal executable plugin: support a clearly specified Ultralytics detection-checkpoint contract. Segmentation, pose, arbitrary PyTorch state dictionaries, and other architectures require explicit adapters and should return UNSUPPORTED_MODEL rather than being guessed.
+## Phase 3: Real RTSP ingestion, without AI
 
-## Inspect actual baseline
+Start with the user-verified channel 101 and the camera's CURRENT configuration. Do not change encoding just because H.264/1080p/15 FPS was previously suggested.
 
-The supplied handoff previously reported FastAPI/SQLAlchemy/Alembic, SQLite local mode and PostgreSQL Compose, separate API/worker, worker lease, source adapters, shared JPEG preview, authenticated snapshots, incidents, and a plain JavaScript frontend. Treat these as historical claims. Inspect current code and reuse working components. Do not migrate the frontend framework as part of this task.
+1. Verify the specific camera host/port from the worker host using bounded checks; do not scan the LAN. Distinguish unreachable host, refused port, authentication failure and decoding failure where supported. If DHCP changed the address, ask the user for the current address instead of guessing.
+2. Use the existing connection-probe workflow and decoder to obtain real decoded frames. Observe codec, dimensions and stream metadata if exposed. Do not confuse configured stream FPS, decoded FPS and inference FPS.
+3. Add/enable the source through the existing application flow with AI disabled. Verify worker health, frame delivery and preview updates through the API and Visor.
+4. Run a bounded 10-minute ingestion test (configurable shorter diagnostic runs are allowed, but report actual duration). Monitor at short intervals without blocking communication. Record time to first frame, decoded/published frame counts where available, measured FPS, read failures, reconnect attempts, frame age, buffer occupancy/capacity and process resource usage at start/end. Do not invent measurements not exposed by the system.
+5. Verify freshness using sequence numbers/timestamps and a physical scene change if possible. A static scene can produce identical image hashes, so hash equality alone is not a valid frozen-stream detector. Distinguish local receipt age from true camera-to-screen latency; do not claim end-to-end latency without synchronized capture timestamps.
+6. Verify Visor shows current frames and honest online/stale/offline states. Prevent an old image being presented as current live footage after ingestion stops.
+7. Check bounded buffers remain bounded and old frames do not accumulate into growing live latency. Verify source shutdown releases resources.
+8. Optionally test channel 102 independently after 101 works. Record its actual resolution/codec and results. A successful low-resolution preview does not establish that small objects will be detectable; choose the AI stream later using real examples. Failure of unverified 102 must not invalidate working 101.
 
-Produce a brief gap map and then implement. Keep docs/IMPLEMENTATION_STATUS.md accurate. Missing Docker or physical-camera access is not a reason to stop implementing and testing the independent Hub/file workflow.
+## Phase 4: Controlled reconnect test
 
-## Canonical repository-relative model paths
+- Use the existing source disable/enable operation to test application lifecycle separately from network loss.
+- For a genuine disconnect, ask the user to unplug/reconnect only the test camera's Ethernet cable. Explain that PoE removal also reboots the camera and report this as a power/network interruption. Do not disable the PC NIC, alter firewall/router settings or interrupt other devices.
+- Coordinate the physical action while observing the worker. Verify stale/offline indication, bounded reconnect backoff and automatic return to fresh frames without manually restarting the application.
+- Record recovery time from the camera becoming reachable again where possible; separate camera boot time from worker reconnect delay.
+- Verify there is no duplicate source reader/worker and no resource accumulation from repeated reconnects. Reset or invalidate downstream tracking state after a discontinuity using the existing contract.
+- If no physical action is available, explicitly mark REAL_DISCONNECT_RECOVERY as NOT_TESTED. A simulated failure or manual disable/enable is useful but is not equivalent evidence.
 
-Use these public handoff paths exactly. Internal Python module paths may adapt to the existing codebase.
+## Phase 5: Minimal fixes, only where evidence warrants them
 
-```text
-models/
-  README.md
-  people_vehicle/
-    manifest.yaml
-    inference.yaml
-    classes.json
-    tracker.yaml
-    scenarios.yaml
-    MODEL_CARD.md
-    evaluation.json
-    weights/
-      .gitkeep
-      best.pt                 # supplied by AI 1, ignored by Git
-  fire_smoke/
-    manifest.yaml
-    inference.yaml
-    classes.json
-    scenarios.yaml
-    MODEL_CARD.md
-    evaluation.json
-    weights/
-      .gitkeep
-      best.pt                 # supplied by AI 2, ignored by Git
-```
+Make focused, backward-compatible fixes for defects discovered above, such as ineffective read timeouts, blocked shutdown, stale preview status, unsafe error logging or broken UI/API integration. Confirm decoder timeout/transport support in the actual installed versions using official docs or Context7 when available. Do not merely set an unsupported option and claim a timeout guarantee.
 
-Do not create fake/empty .pt files. Provide valid configuration templates with explicit not-provided evaluation/provenance fields. Do not invent hashes, training runs, metrics, or licenses. Metadata describing runtime capabilities and actual package defaults must be concrete even when weights are absent.
+If a decoder can block despite configured timeouts, use the smallest architecture-compatible containment mechanism and demonstrate bounded failure behavior. Avoid broad rewrites. Add meaningful regression tests for repaired behavior; run existing relevant tests and syntax/diff checks. Keep mocked tests clearly distinguished from hardware tests.
 
-Root model directory is resolved relative to the repository, not the shell working directory, with optional VIGILON_MODEL_DIR override. Package-relative paths resolve relative to each manifest. Verify Windows, Linux, and Compose mapping semantics. Mount packages read-only in the worker container and keep writable caches/evidence elsewhere. Dependencies, optional CUDA setup, and cache location must be documented. Inserting model weights must not require rebuilding an image.
+## Phase 6: Optional real AI validation, separately gated
 
-Commit configuration, templates, docs, and .gitkeep. Ignore weights, training datasets, generated video, run outputs, and secrets. Preserve existing assets; do not delete them.
+Proceed only after real ingestion succeeds AND a trusted team-supplied checkpoint and matching package configuration are available. Do not download random weights or retrain as part of this task.
 
-## Model-package schema and validation
+- Expected existing package paths, relative to repository root:
+  - models/people_vehicle/weights/best.pt
+  - models/fire_smoke/weights/best.pt
+- Read the actual manifest/config contract. Check architecture, task type, classes/IDs, checksum, provenance and compatibility with the pinned runtime. Do not assume that renaming an arbitrary checkpoint best.pt makes it compatible.
+- Run existing metadata/runtime validation and explicit reload. Verify the worker actually loaded the requested version; an accepted reload request alone is insufficient.
+- Missing weights must stay MISSING_WEIGHTS, with ingestion and raw preview working independently. Never fall back silently to SIMULATED detections.
+- Start with people_vehicle. Verify real observations, frame association, tracking IDs and processing speed. An empty scene with zero detections is not sufficient proof of successful person detection.
+- Let the user draw a zone/line through Visor and perform a safe walk-through. Test one selected rule end to end: actual detection -> tracking/rule -> event candidate -> persisted incident -> matching evidence -> acknowledgment/resolution and audit history.
+- Check an ordinary negative case and repeat an event to inspect deduplication. Confirm observations/evidence belong to the correct source/frame; ensure reconnect does not generate spurious crossing events from stale tracks.
+- Do not stage actual fire or dangerous falls. Fire/smoke model testing, if needed, uses authorized recorded footage in a separate FILE test and must not be represented as a physical-camera fire test.
+- These are integration checks, not a general accuracy certification. Report the team's training metrics separately from runtime checks.
 
-Create a versioned schema and concrete examples. manifest.yaml includes:
-- schema_version, module_id, package_version, adapter_id.
-- task: detect, framework/runtime identifiers, tested/required runtime compatibility.
-- weights relative path and optional expected SHA-256.
-- paths to inference/class/scenario metadata and optional tracker configuration.
-- supported events and model-card/evaluation references.
+## Camera settings to report, not change silently
 
-Initial registered adapter IDs should correspond to built-in reviewed people/vehicle and fire/smoke plugins. Manifest data must not specify arbitrary import paths, executable commands, or pip installs.
+Create a short checklist of actual and pending values: codec, resolution, FPS, bitrate/mode, I-frame interval, substream, camera time/timezone/NTP. Record unknown values as unknown. If decoding is blocked by an encoding setting, explain the observed error and propose the smallest manual change, recording old/new values if the user performs it.
 
-classes.json explicitly maps numeric checkpoint class IDs to canonical labels. On load, validate against checkpoint names. Preserve original names separately when aliases such as motorbike → motorcycle are deliberately configured. Never assume car has a fixed numeric index or fire is always class 0. Fail on mismatches/duplicates/unsupported scenario requirements with actionable errors.
+Recommend reserving the current camera address via router DHCP reservation as a follow-up, subject to the router supporting it. Do not set an arbitrary static IP that could conflict with the DHCP pool. ONVIF setup is deferred unless a specific existing integration requirement makes it necessary. No firmware upgrade is required by this task.
 
-inference.yaml supports validated input size, score threshold, NMS IoU, selected classes, device cpu/cuda/auto, and CPU fallback policy. Define configuration precedence; report effective settings and model version without sensitive source details. Reject unknown/invalid fields rather than silently ignoring them.
+## Evidence and delivery
 
-scenarios.yaml holds explicit event defaults: required class labels, zone/line references, minimum observation duration, disappearance grace, cooldown, hysteresis where needed. Per-camera/job settings override allowed defaults. Validate geometry and scenario/module compatibility before starting.
-
-Two-stage validation:
-1. Metadata validation without deserializing weights: file existence, containment, schema, metadata, optional checksum, and declared readiness.
-2. Runtime validation of a trusted local checkpoint: load with the supported library, check task/class mapping, warm up on a controlled image, validate outputs, release resources.
-
-Treat .pt files as executable/trusted artifacts: load only team-approved local packages. Do not auto-download weights or accept arbitrary public checkpoint uploads. Do not globally monkey-patch safe-loading behavior. Checksum verifies integrity, not trust. Report unsupported checkpoint errors clearly.
-
-Status must distinguish MISSING_WEIGHTS, INVALID_CONFIG, UNSUPPORTED_MODEL, DEPENDENCY_MISSING, READY, LOADING, RUNNING, ERROR, DISABLED as appropriate. READY requires successful runtime load validation; metadata-only validation is not READY. Missing real weights never activates a dummy model silently.
-
-## Hub contract and implementation
-
-Reuse/evolve existing schemas rather than creating disconnected parallel ones. Include schema versions and representative fixtures.
-
-FramePacket:
-- source_id, session_id/job_id, frame_id/sequence.
-- media timestamp for file playback; receive/capture timestamp for live with timestamp origin explicit.
-- original width/height, image data/reference, colorspace and relevant transform metadata.
-- stream discontinuity information when reconnect/seek/replay occurs.
-
-Detection:
-- canonical label, original class ID/name, score if provided.
-- bounding geometry in one documented coordinate convention.
-- optional track ID, model/package version, frame reference, simulation flag.
-
-EventCandidate:
-- stable event key, source/session/module/scenario identifiers.
-- lifecycle START/UPDATE/END or equivalent explicit semantics.
-- event type, start/last observed time, geometry, related track IDs, evidence-frame reference.
-- structured facts, score semantics, simulation flag; no invented calibrated probabilities.
-
-Define lifecycle methods equivalent to:
-- load(package_config)
-- create_session(session_id, source_context, scenario_config)
-- process(frame_packet, session_context)
-- reset/close_session(session_id)
-- close()
-
-Separate immutable weights/runtime from mutable per-source/per-job tracker and rule state. Model sharing requires safe serialized inference or explicit synchronization. Do not share one persistent tracker between cameras. Reset on new job/seek/replay/discontinuity according to documented policy.
-
-Hub responsibilities:
-- Built-in plugin registry and package catalog.
-- Enable selected modules per source/job.
-- Bounded scheduling and resource lifecycle.
-- Isolate a module failure from unrelated modules/sources.
-- Safe load/unload with explicit reload after replacing package files; no unsafe live hot swap.
-- Record package version/config revision for each session/event.
-- Handle cancellation and graceful shutdown without orphan workers or leaked GPU memory.
-- Preserve the existing worker ownership mechanism; do not launch a competing ingestion worker.
-
-LIVE policy: bounded queues, prefer latest frames, count dropped frames, measure backlog. FILE policy: ordered processing with backpressure; no silent live-style dropping. Explicit sampling is allowed but must report coverage/FPS and use media timestamps. A cancelled/failed/partially processed file must not be reported complete or event-free.
-
-Use monotonic elapsed-time handling for live durations with UTC display timestamps; use media time for file durations. Handle missing observations/disconnects without accumulating fictitious continuous presence. Keep preview independent of slow inference.
-
-## Implement initial real plugins and scenarios
-
-### People/vehicle
-
-Implement a real Ultralytics detector adapter plus ByteTrack integration using the pinned library's supported APIs. Coordinate preprocessing and RGB/BGR conversion once. Verify output mapping through resize/letterbox to original geometry.
-
-Implement:
-- Zone entry with explicit outside→inside transition policy, including behavior when an object first appears already inside.
-- Directional line crossing using trajectory history and hysteresis/debounce, not frame jitter.
-- Dwell duration in a zone with short-gap grace and reset rules.
-
-Use configurable anchor geometry such as bottom-center, documented for the camera view. Dwell is not stationary-parking detection unless movement criteria are separately implemented. No cross-camera identity matching.
-
-### Fire/smoke
-
-Implement a real compatible detection-checkpoint adapter for canonical smoke/fire labels. Add temporal confirmation, short-gap tolerance, incident episode lifecycle, and cooldown. Define whether one active episode is aggregated per class/zone or another explicit key. Do not imply static single-frame boxes prove an emergency. No requirement to train a new model within this task.
-
-### Deterministic demo
-
-Provide a separate explicit dummy plugin with controllable observations to exercise every scenario, including negatives. Every synthetic result must be labelled SIMULATED in API/UI/evidence metadata. Dummy mode must be opt-in and may not be the fallback for missing real checkpoints.
-
-## Application, evidence, API, and Visor integration
-
-Wire Hub into existing application flows; do not leave it as an isolated CLI library.
-
-Backend owns persistent incidents, audit, notifications, users, and files. Plugins produce typed events and do not write application tables. Provide a single event sink mapping stable START/UPDATE/END events into existing deduplication and incident workflow. Scene clearance and operator resolution remain distinct. Repeated updates must not create rows/notifications per frame. Define operator-resolved-but-still-observed and recurrence behavior.
-
-Evidence must match the triggering frame. An event cannot simply refer to the latest JPEG after it has been overwritten. Implement bounded pinned/copy-on-event evidence handoff or equivalent. Protect evidence access and preserve existing retention semantics.
-
-Add/integrate APIs for:
-- Module catalog, metadata/status/errors, validation and reload (admin-only mutations).
-- Assigning modules/scenarios and zones/lines to sources/jobs.
-- File job creation, progress, cancellation, results, and failure details.
-- Hub status: processing rate, drops, queue depth, inference latency, active sessions and failures.
-
-Do not invent endpoint paths without checking existing routes. Record implemented endpoints in docs/OpenAPI. Long analysis runs in workers, not request handlers. Prevent duplicate file-job execution and define interrupted-job recovery/failure behavior.
-
-Visor minimum:
-- Show available/unavailable modules and actionable missing-file paths.
-- Let users select compatible modules and configure scenarios with source/job zones and directional lines.
-- Live: real preview, module health, event list and evidence.
-- File: authorized upload/import, progress, cancel, event timeline and seek to event time in browser-playable input.
-- Authenticate source/video/evidence routes; bounded file uploads/import roots.
-- Distinguish decode support from browser playback support. Report unsupported browser codecs or provide a documented controlled preview conversion; never claim arbitrary codecs play in browsers.
-- Show missing weights as unavailable, not zero detections or success.
-- Preserve existing plain JavaScript UI unless the repository has already changed. No unrelated visual rewrite.
-
-## Developer CLI and templates
-
-Implement commands under the existing app.commands CLI or a compatible subcommand structure. Document exact commands that actually exist for:
-- list-models
-- validate-model <module_id> (metadata and runtime modes)
-- reload-model <module_id> safely in the relevant runtime
-- analyze-video with input, selected modules, scenario configuration, and output directory
-- hub-self-test using explicitly simulated fixtures
-
-These are required capabilities; adapt flag syntax to the current CLI consistently. No undocumented pretend commands. Analyze-video must exercise the same Hub/plugins as the application, not a separate throwaway implementation.
-
-Provide a delivery checklist and generation/validation helper for model packages. Creating templates must never overwrite teammates' weights or existing populated configuration. Package reload should require deliberate action, reject mixed/incomplete file updates, and preserve the last valid version or leave an explicit failure state.
-
-## Verification
-
-Run focused tests for:
-- Missing weights, malformed manifest, wrong class map/task, path escape and checksum mismatch.
-- CPU operation and explicit CUDA-unavailable behavior without pretending GPU tests passed.
-- Model-load reuse and isolation of tracker/rule state across two sources/jobs.
-- Module failure isolation and cancellation/shutdown.
-- Coordinate transforms and zones/lines.
-- Entry/crossing/dwell/fire episode timing, jitter, gaps, cooldown and recurrence.
-- Evidence correspondence and incident deduplication.
-- Ordered file processing and timestamp-based results independent of execution speed.
-- Access restrictions on catalog mutations, video and evidence.
-- Complete synthetic pipeline through actual API/worker/database and Visor where supported.
-
-Real inference tests: use a trusted compatible checkpoint already available. If none exists, implement the real adapter fully and test a small locally generated untrained model checkpoint through the actual installed model library where practical. Label this an integration smoke test, not a trained detector or accuracy test. Do not download production weights automatically or create fake performance metrics. Record which tests use mocks/synthetic observations versus actual model loading/inference.
-
-Docker/PostgreSQL tests should run if available; otherwise record the gap and verify independent local paths. Physical camera tests require explicit configured authorization; lack of camera access does not block file-mode completion.
-
-No training of large models is required. No external notifications, public deployment, facial identification, or large dataset acquisition in this task.
-
-## Documentation and team handoff
-
-Create/update:
-- models/README.md: exact placement and activation steps for AI 1 and AI 2.
-- docs/MODEL_PACKAGE_SPEC.md: complete validated schema and examples.
-- docs/AI_HUB.md: lifecycle, scheduling, isolation, runtime choices and failures.
-- docs/AI_INTEGRATION_CONTRACT.md: typed frame/detection/event contracts with fixtures.
-- docs/SCENARIO_RULES.md: precise temporal/spatial semantics.
-- docs/MODEL_HANDOFF.md: owner checklist, validation and integration steps.
-- README.md, AGENTS.md, docs/IMPLEMENTATION_STATUS.md: actual commands and verified scope.
-
-Document that AI owners submit best.pt PLUS accurate class mapping/config, model card/provenance, training/evaluation details and tested package/runtime versions. Once the package passes validation, the operator explicitly reloads/selects it. Only checkpoints compatible with the installed adapter are drop-in; another architecture needs a new reviewed plugin.
-
-## Acceptance checklist
-
-- [ ] Existing repo preserved; no duplicate competing Hub or ingestion implementation.
-- [ ] Canonical model directories and valid templates created, with no fake weights.
-- [ ] One documented plugin contract and package validator.
-- [ ] Real Ultralytics detection adapters and ByteTrack integration implemented.
-- [ ] Entry, directional crossing, dwell and smoke/fire temporal rules implemented.
-- [ ] Per-camera/per-job state isolation and bounded scheduling.
-- [ ] Hub connects to existing ingestion, incident persistence and evidence paths.
-- [ ] LIVE and FILE mode use the same modules with correct time semantics.
-- [ ] Visor can inspect module readiness and select/configure supported modules.
-- [ ] File job progress/cancel/results and event navigation work for supported input.
-- [ ] Safe explicit package reload without rebuilding the application.
-- [ ] Demo works without real weights and is unmistakably simulated.
-- [ ] Missing real weights remain explicitly unavailable; no invented detections.
-- [ ] CLI, tests, model placement guide, and AGENTS documentation align with code.
-
-Do not mark runtime acceptance passed based on file existence, syntax checks, or mocked calls alone. Report HUB_INFRA_READY separately from REAL_MODEL_VALIDATED and CAMERA_VALIDATED. Infrastructure can be complete while specific real-model/device validation remains pending.
-
-## Final response
-
-Report what was implemented, checks and actual outcomes, remaining blockers, exact commands to run self-test and import/activate each package, and the absolute model paths resolved from this checkout. Show both canonical relative paths:
-- models/people_vehicle/weights/best.pt
-- models/fire_smoke/weights/best.pt
-
-Explicitly state whether a trained model was used and which scenarios were validated with real inference. Do not stop at scaffolding or documentation; finish the working model-ready Hub and application integration within this scope.
+Create/update docs/CAMERA_VALIDATION.md with:
+- Date, tested repo commit plus dirty-work note, actual execution environment and relevant versions.
+- Source ID and sanitized stream address, stream metadata, commands actually executed with no secrets.
+- Results for direct decode, existing probe API, worker ingestion, Visor preview, freshness, bounded-duration stability and reconnect, including durations/measurements.
+- Exact defects, fixes and regression checks.
+- Human-performed observations clearly attributed to the user.
+- Unverified items and reproducible next steps.
+
+Preserve the repository's current readiness semantics. Distinguish in the report:
+- EXTERNAL_RTSP_VALIDATED: user-reported PASS for VLC channel 101.
+- BACKEND_INGESTION_VALIDATED: PASS only with real decoded frames through the actual worker and API.
+- VISOR_LIVE_VALIDATED: PASS only with real updating authenticated preview.
+- REAL_DISCONNECT_RECOVERY: PASS only after an observed real interruption and recovery.
+- REAL_MODEL_VALIDATED: only if real runtime/model checks pass; not inferred from metrics or mocks.
+- CAMERA_AI_E2E_VALIDATED: only if the actual camera event/evidence/operator workflow succeeds.
+
+Do not silently redefine CAMERA_VALIDATED. Inspect its documented meaning, state which checks it requires and set it only when those checks have evidence. If no definition exists, keep it pending and propose the precise gate in the report rather than fabricating one. New report labels do not require new persistent API statuses or migrations.
+
+Keep private footage/evidence, credentials, local databases, model binaries and machine-specific secrets out of Git. Store test artifacts in existing ignored local storage and reference sanitized evidence in documentation. Do not erase pre-existing recordings or data.
+
+Update IMPLEMENTATION_STATUS.md and relevant README instructions with actual results. Update AGENTS.md only if a concrete repo-specific workflow needs documenting; preserve current instructions and global settings.
+
+Final response in Thai: what was inspected, what changed, what passed with real hardware versus mocks, what remains blocked, and exact Windows next steps. Include a suggested commit message reflecting actual changes. Do not commit or push.

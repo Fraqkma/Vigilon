@@ -16,7 +16,7 @@ $env:PYTHONPATH = 'backend'
 .\.venv\Scripts\python.exe -m app.commands seed-demo --scenario obstruction
 ```
 
-Setup creates ignored `.env` values only where placeholders remain, prompts for an administrator password without echoing it, and leaves configured values alone. Start the API and worker in two PowerShell windows from the repository root:
+Setup creates ignored `.env` values only where placeholders remain, prompts for an administrator password without echoing it, and leaves configured values alone. If `.env` exists but is empty, setup seeds it from `.env.example`. Start the API and worker in two PowerShell windows from the repository root:
 
 ```powershell
 $env:PYTHONPATH = 'backend'
@@ -69,6 +69,10 @@ An administrator can create a source through `POST /api/cameras` or the authenti
 
 For a recorder-managed analog camera, compatibility depends on the recorder exposing an authorized RTSP stream for that channel. A vendor-cloud-only camera is unsupported unless it exposes one of the implemented local interfaces. Docker Desktop may not route a container to every host LAN; check host firewall, VLAN routing, DNS, and camera/NVR stream permissions. Avoid publishing RTSP or Vigilon ports to the internet.
 
+The initial 2026-10-22 Hikvision integration attempt confirmed only TCP reachability from the current host to the user-supplied `192.168.1.102:554`. Local `.env` and SQLite setup has since completed, but the API and worker remain stopped and there is no backend decode or Visor preview evidence yet. See [camera validation record](docs/CAMERA_VALIDATION.md) for exact status and local continuation steps; do not treat VLC or generated/mock tests as backend camera validation.
+
+For the one-time local setup source, `.env.example` includes opt-in `VIGILON_SETUP_CAMERA_*` fields. After filling the camera and local administrator passwords in ignored `.env`, run `PYTHONPATH=backend .venv/Scripts/python.exe -m app.commands provision-camera` (PowerShell: set `$env:PYTHONPATH = 'backend'` first). This validates the configured RTSP destination, stores the credential-bearing URL encrypted, and creates an AI-disabled source. It is idempotent and does not run at app startup. Keep the password separate from the URL; quote dotenv-special values in single quotes. See [camera validation record](docs/CAMERA_VALIDATION.md).
+
 Local video paths are resolved beneath `VIGILON_MEDIA_DIR` (default `sample_data`). OpenCV/FFmpeg decodes the selected local file. At EOF the worker reconnects with bounded exponential backoff and replays the file from its beginning. RTSP/file decoding and codec combinations have not been verified against hardware here.
 
 ## Commands
@@ -108,7 +112,7 @@ New integration endpoints are `POST /api/cameras/test-connection`, `POST /api/ai
 
 The CLI is also available: `python -m app.commands analyze-video --input <path-under-media-root> --modules people_vehicle,fire_smoke --scenario-config <json-file> --output <directory>`. Omit a module if its trusted weights are not installed. Result JSON is only marked `COMPLETED` after ordered EOF; decode/inference errors and cancellation produce `FAILED`/`CANCELLED` results. `python -m app.commands hub-self-test` exercises the explicit simulated fixture only.
 
-The Hub catalog and templates establish `HUB_INFRA_READY`. No trained checkpoint is included, so this checkout does not claim `REAL_MODEL_VALIDATED` or `CAMERA_VALIDATED`. See [AI Hub](docs/AI_HUB.md), [package spec](docs/MODEL_PACKAGE_SPEC.md), and [model placement and handoff](models/README.md).
+The Hub catalog and templates establish `HUB_INFRA_READY`. No trained checkpoint is included, so this checkout does not claim `REAL_MODEL_VALIDATED`. See [camera validation](docs/CAMERA_VALIDATION.md) for the scoped channel 101 `CAMERA_VALIDATED` result and its remaining physical disconnect and model limits. See [AI Hub](docs/AI_HUB.md), [package spec](docs/MODEL_PACKAGE_SPEC.md), and [model placement and handoff](models/README.md).
 
 Use the repository `.venv` Python instead of system Python. Configure retention days in `.env`; the cleanup command removes expired snapshots and flags their database references while preserving incident history. No periodic scheduler currently invokes it automatically.
 

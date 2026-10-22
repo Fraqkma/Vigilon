@@ -4,6 +4,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $envPath = if ([string]::IsNullOrWhiteSpace($EnvironmentFile)) { Join-Path $root '.env' } elseif ([IO.Path]::IsPathRooted($EnvironmentFile)) { $EnvironmentFile } else { Join-Path $root $EnvironmentFile }
 if (-not (Test-Path -LiteralPath $envPath)) {
     Copy-Item -LiteralPath (Join-Path $root '.env.example') -Destination $envPath
+} elseif ((Get-Item -LiteralPath $envPath).Length -eq 0) {
+    # An existing empty file has no values to preserve; seed it from the template.
+    Copy-Item -LiteralPath (Join-Path $root '.env.example') -Destination $envPath -Force
 }
 $content = Get-Content -LiteralPath $envPath -Raw
 if ($content.Contains('generate-with-scripts/setup.ps1') -or $content.Contains('set-a-unique-password')) {
