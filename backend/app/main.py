@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, update, func
 from sqlalchemy.exc import IntegrityError
 from argon2 import PasswordHasher
-from .core import HANDOFF_DIR, EVIDENCE_DIR, SECRET_KEY, fernet, MEDIA_DIR, MEDIA_ROOTS, IMPORT_DIR
-from .db import Session, User, Role, Camera, Rule, Incident, IncidentStatus, Transition, Notification, Lease, now
+from .core import HANDOFF_DIR, EVIDENCE_DIR, SECRET_KEY, fernet, MEDIA_DIR, MEDIA_ROOTS, IMPORT_DIR, FLOOR_PLAN_DIR
+from .db import Session, User, Role, Camera, Rule, Incident, IncidentStatus, Transition, Notification, Lease, FloorPlan, CameraPlacement, now
 from .ai_hub import hub, PackageError, BUILTINS, report_operation
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"),format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -57,6 +57,16 @@ class ActionIn(BaseModel): status:IncidentStatus; note:str=Field(default="",max_
 class UserIn(BaseModel): username:str=Field(min_length=3,max_length=80); password:str=Field(min_length=12,max_length=256); role:Role
 class FileJobIn(BaseModel): input_path:str=Field(min_length=1,max_length=2048); modules:list[str]=Field(min_length=1,max_length=2); scenario_config:dict={}
 class ConnectionTestIn(BaseModel): source_type:str; connection:str=Field(min_length=1,max_length=2048); timeout_seconds:int=Field(default=5,ge=1,le=10)
+class FloorPlanIn(BaseModel):
+    name:str=Field(min_length=1,max_length=120); location_label:str=Field(default="",max_length=160)
+    @model_validator(mode="after")
+    def trim_name(self):
+        self.name=self.name.strip();self.location_label=self.location_label.strip()
+        if not self.name:raise ValueError("Plan name cannot be blank")
+        return self
+class PlacementIn(BaseModel): camera_id:int=Field(gt=0); x:float=Field(ge=0,le=1); y:float=Field(ge=0,le=1)
+class PlacementsIn(BaseModel): placements:list[PlacementIn]=Field(max_length=500)
+class CameraContextIn(BaseModel): manufacturer:str|None=Field(default=None,max_length=120); model:str|None=Field(default=None,max_length=120); specifications:str|None=Field(default=None,max_length=500); responsible_contact:str|None=Field(default=None,max_length=200); response_notes:str|None=Field(default=None,max_length=1000)
 
 @app.middleware("http")
 async def security(request,call_next):
@@ -315,7 +325,95 @@ def overview(user=Depends(current_user)):
                 "source_counts":{"online":sum(c.enabled and c.status=="ONLINE" for c in cameras),"offline":sum(c.enabled and c.status!="ONLINE" for c in cameras),"disabled":sum(not c.enabled for c in cameras)},
                 "recent_incidents":[incident_dict(db,x) for x in db.scalars(select(Incident).order_by(Incident.last_seen.desc()).limit(5))],
                 "jobs":{"running":sum(x["status"]=="RUNNING" for x in jobs),"queued":sum(x["status"]=="QUEUED" for x in jobs),"completed":sum(x["status"]=="COMPLETED" for x in jobs),"failed":sum(x["status"] in ("FAILED","PARTIAL") for x in jobs)},"modules":hub.list()}
-def camera_dict(c): return {"id":c.id,"name":c.name,"location":c.location,"source_type":c.source_type,"enabled":c.enabled,"simulated":c.simulated,"scenario":c.scenario if c.simulated else None,"processing_fps":c.processing_fps,"resize_limit":c.resize_limit,"timeout_seconds":c.timeout_seconds,"reconnect_min_seconds":c.reconnect_min_seconds,"reconnect_max_seconds":c.reconnect_max_seconds,"status":c.status,"error_category":c.error_category,"preview_stale":not c.last_frame or (now()-c.last_frame.replace(tzinfo=timezone.utc) if c.last_frame.tzinfo is None else now()-c.last_frame).total_seconds()>8,"last_frame":utc_iso(c.last_frame),"reconnects":c.reconnects,"processed":c.processed,"dropped":c.dropped}
+def camera_dict(c): return {"id":c.id,"name":c.name,"location":c.location,"source_type":c.source_type,"enabled":c.enabled,"simulated":c.simulated,"scenario":c.scenario if c.simulated else None,"processing_fps":c.processing_fps,"resize_limit":c.resize_limit,"timeout_seconds":c.timeout_seconds,"reconnect_min_seconds":c.reconnect_min_seconds,"reconnect_max_seconds":c.reconnect_max_seconds,"status":c.status,"error_category":c.error_category,"preview_stale":not c.last_frame or (now()-c.last_frame.replace(tzinfo=timezone.utc) if c.last_frame.tzinfo is None else now()-c.last_frame).total_seconds()>8,"last_frame":utc_iso(c.last_frame),"reconnects":c.reconnects,"processed":c.processed,"dropped":c.dropped,"manufacturer":c.manufacturer,"model":c.model,"specifications":c.specifications,"responsible_contact":c.responsible_contact,"response_notes":c.response_notes}
+
+def floor_plan_dict(db, plan):
+    placements=db.scalars(select(CameraPlacement).where(CameraPlacement.plan_id==plan.id)).all()
+    return {"id":plan.id,"name":plan.name,"location_label":plan.location_label,"has_image":bool(plan.image_name),"image_width":plan.image_width,"image_height":plan.image_height,"placements":[{"camera_id":p.camera_id,"x":p.x,"y":p.y} for p in placements]}
+
+@app.get("/api/plans")
+def list_floor_plans(user=Depends(current_user)):
+    with Session() as db:return [floor_plan_dict(db,p) for p in db.scalars(select(FloorPlan).order_by(FloorPlan.id)).all()]
+
+@app.post("/api/plans",status_code=201)
+def create_floor_plan(data:FloorPlanIn,user=Depends(require_admin)):
+    with Session.begin() as db:
+        plan=FloorPlan(name=data.name.strip(),location_label=data.location_label.strip());db.add(plan);db.flush();return floor_plan_dict(db,plan)
+
+@app.patch("/api/plans/{plan_id}")
+def update_floor_plan(plan_id:int,data:FloorPlanIn,user=Depends(require_admin)):
+    with Session.begin() as db:
+        plan=db.get(FloorPlan,plan_id)
+        if not plan:raise HTTPException(404,"Floor plan not found")
+        plan.name=data.name.strip();plan.location_label=data.location_label.strip();return floor_plan_dict(db,plan)
+
+@app.put("/api/plans/{plan_id}/placements")
+def save_plan_placements(plan_id:int,data:PlacementsIn,user=Depends(require_admin)):
+    if len({p.camera_id for p in data.placements})!=len(data.placements):raise HTTPException(422,"A camera can appear only once on a floor plan")
+    with Session.begin() as db:
+        if not db.get(FloorPlan,plan_id):raise HTTPException(404,"Floor plan not found")
+        camera_ids={c.id for c in db.scalars(select(Camera).where(Camera.id.in_([p.camera_id for p in data.placements]))).all()} if data.placements else set()
+        if camera_ids!={p.camera_id for p in data.placements}:raise HTTPException(422,"Placement references an unknown camera")
+        db.query(CameraPlacement).filter(CameraPlacement.plan_id==plan_id).delete(synchronize_session=False)
+        for item in data.placements:
+            previous=db.scalar(select(CameraPlacement).where(CameraPlacement.camera_id==item.camera_id))
+            if previous and previous.plan_id!=plan_id:db.delete(previous)
+            db.add(CameraPlacement(plan_id=plan_id,camera_id=item.camera_id,x=item.x,y=item.y))
+        db.flush();plan=db.get(FloorPlan,plan_id);return floor_plan_dict(db,plan)
+
+@app.post("/api/plans/{plan_id}/image")
+async def upload_plan_image(plan_id:int,request:Request,user=Depends(require_admin)):
+    raw=await request.body()
+    if not raw or len(raw)>8*1024*1024:raise HTTPException(413,"Floor plan image must be between 1 byte and 8 MiB")
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):extension="png"
+    elif raw.startswith(b"\xff\xd8\xff"):extension="jpg"
+    else:raise HTTPException(415,"Only decoded PNG and JPEG floor plans are supported")
+    from io import BytesIO
+    from PIL import Image, UnidentifiedImageError
+    try:
+        with Image.open(BytesIO(raw)) as image:
+            if image.format not in ("PNG","JPEG"):raise HTTPException(415,"Only PNG and JPEG floor plans are supported")
+            width,height=image.size
+            if width<1 or height<1 or width*height>20_000_000:raise HTTPException(413,"Floor plan image exceeds the 20 megapixel limit")
+            image.verify()
+        with Image.open(BytesIO(raw)) as image:image.load()
+    except HTTPException:raise
+    except Image.DecompressionBombError:raise HTTPException(413,"Floor plan image exceeds the 20 megapixel limit")
+    except (UnidentifiedImageError,OSError,ValueError):raise HTTPException(415,"Image could not be decoded")
+    if width<1 or height<1 or width*height>20_000_000:raise HTTPException(413,"Floor plan image exceeds the 20 megapixel limit")
+    old_filename=None
+    with Session.begin() as db:
+        plan=db.get(FloorPlan,plan_id)
+        if not plan:raise HTTPException(404,"Floor plan not found")
+        filename=f"{uuid.uuid4().hex}.{extension}";target=FLOOR_PLAN_DIR/filename;old_filename=plan.image_name
+        target.write_bytes(raw);plan.image_name=filename;plan.image_width=width;plan.image_height=height
+    if old_filename and re.fullmatch(r"[0-9a-f]{32}\.(png|jpg)",old_filename):(FLOOR_PLAN_DIR/old_filename).unlink(missing_ok=True)
+    return {"plan_id":plan_id,"has_image":True,"image_width":width,"image_height":height}
+
+@app.get("/api/plans/{plan_id}/image")
+def get_plan_image(plan_id:int,user=Depends(current_user)):
+    with Session() as db:plan=db.get(FloorPlan,plan_id);filename=plan.image_name if plan else None
+    if not filename or not re.fullmatch(r"[0-9a-f]{32}\.(png|jpg)",filename):raise HTTPException(404,"Floor plan image not found")
+    path=(FLOOR_PLAN_DIR/filename).resolve()
+    if path.parent!=FLOOR_PLAN_DIR or not path.is_file():raise HTTPException(404,"Floor plan image not found")
+    return FileResponse(path,media_type="image/png" if path.suffix==".png" else "image/jpeg",headers={"Cache-Control":"private, no-store"})
+
+@app.delete("/api/plans/{plan_id}",status_code=204)
+def delete_floor_plan(plan_id:int,user=Depends(require_admin)):
+    with Session.begin() as db:
+        plan=db.get(FloorPlan,plan_id)
+        if not plan:raise HTTPException(404,"Floor plan not found")
+        db.query(CameraPlacement).filter(CameraPlacement.plan_id==plan_id).delete(synchronize_session=False)
+        filename=plan.image_name;db.delete(plan)
+    if filename and re.fullmatch(r"[0-9a-f]{32}\.(png|jpg)",filename):(FLOOR_PLAN_DIR/filename).unlink(missing_ok=True)
+
+@app.put("/api/cameras/{camera_id}/context")
+def update_camera_context(camera_id:int,data:CameraContextIn,user=Depends(require_admin)):
+    with Session.begin() as db:
+        camera=db.get(Camera,camera_id)
+        if not camera:raise HTTPException(404,"Camera not found")
+        for key,value in data.model_dump().items():setattr(camera,key,value.strip() if value else None)
+        return camera_dict(camera)
 @app.get("/api/cameras")
 def cameras(user=Depends(current_user)):
     with Session() as db: return [camera_dict(c) for c in db.scalars(select(Camera).order_by(Camera.id))]
@@ -438,7 +536,7 @@ def incidents(status:IncidentStatus|None=None,limit:int=Query(default=50,ge=1,le
         return [incident_dict(db,x) for x in db.scalars(q)]
 def incident_dict(db,i):
     c=db.get(Camera,i.camera_id)
-    return {"id":i.id,"camera_id":i.camera_id,"camera":c.name if c else "Unknown","location":c.location if c else "","event_type":i.event_type,"status":i.status.value,"severity":i.severity,"simulated":i.simulated,"first_seen":utc_iso(i.first_seen),"last_seen":utc_iso(i.last_seen),"snapshot_available":not i.evidence_expired and (EVIDENCE_DIR/i.snapshot).is_file(),"evidence_expired":i.evidence_expired,"metadata":i.metadata_json,"history":[{"actor":t.username,"from":h.from_status,"to":h.to_status,"note":h.note,"at":utc_iso(h.at)} for h in db.scalars(select(Transition).where(Transition.incident_id==i.id).join(User,Transition.actor_id==User.id).with_only_columns(Transition)) for t in [db.get(User,h.actor_id)]]}
+    return {"id":i.id,"camera_id":i.camera_id,"camera":c.name if c else "Unknown","location":c.location if c else "","event_type":i.event_type,"status":i.status.value,"severity":i.severity,"simulated":i.simulated,"first_seen":utc_iso(i.first_seen),"last_seen":utc_iso(i.last_seen),"snapshot_available":not i.evidence_expired and (EVIDENCE_DIR/i.snapshot).is_file(),"evidence_expired":i.evidence_expired,"metadata":i.metadata_json,"config_snapshot":i.config_snapshot,"history":[{"actor":t.username,"from":h.from_status,"to":h.to_status,"note":h.note,"at":utc_iso(h.at)} for h in db.scalars(select(Transition).where(Transition.incident_id==i.id).join(User,Transition.actor_id==User.id).with_only_columns(Transition)) for t in [db.get(User,h.actor_id)]]}
 @app.post("/api/incidents/{incident_id}/action")
 def action(incident_id:int,data:ActionIn,user=Depends(current_user)):
     allowed={IncidentStatus.NEW:{IncidentStatus.ACKNOWLEDGED,IncidentStatus.FALSE_ALARM,IncidentStatus.RESOLVED},IncidentStatus.ACKNOWLEDGED:{IncidentStatus.RESOLVED,IncidentStatus.FALSE_ALARM},IncidentStatus.RESOLVED:set(),IncidentStatus.FALSE_ALARM:set()}

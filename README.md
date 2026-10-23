@@ -32,6 +32,12 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) and sign in as the admin use
 
 Choose `normal`, `obstruction`, `person_down`, or `smoke_fire` in Live Monitoring when adding a synthetic source. A simulated incident appears after the configured minimum duration. Its synthetic snapshot, `SIMULATED` badge, acknowledgement, resolution, and actor history are stored locally. Operator actions are also available from Incidents.
 
+## Control Center
+
+After signing in, Control Center is the operational landing view. It combines a named floor plan and normalized camera markers, worker-published live preview (single or up to four tiles), configured location context, optional device details, a bounded incident queue, and incident actions/evidence. Admins create plans, upload PNG/JPEG floor plans (8 MiB / 20 megapixel maximum), place cameras, and edit optional contact/device context. Existing camera, incident, rule, AI Modules, Video Analysis, Overview and Settings destinations remain available in the sidebar. Camera markers represent configured camera positions; they do not identify where an event occurred.
+
+New SQLite/PostgreSQL migration: `0004_control_center`. Apply it with the existing `python -m app.commands migrate` step before starting API/worker after updating. Contract examples, permissions and error behavior are in [Control Center contracts](docs/CONTROL_CENTER_CONTRACTS.md); feature lifecycle and ownership boundaries are in [module guide](docs/FEATURE_MODULES.md) and [ownership packages](docs/FEATURE_OWNERSHIP.md).
+
 ## Docker Desktop / Linux Compose
 
 Install Docker Desktop with the Compose plugin on Windows, or Docker Engine and the Compose plugin on Linux. Generate `.env` with `scripts/setup.ps1` on Windows or `bash scripts/setup.sh` on Linux; setup generates local secrets without requiring Python packages and leaves already configured values unchanged. Then:

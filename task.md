@@ -1,123 +1,232 @@
-# Vigilon / Visor: Real Camera Ingestion Validation
+# Vigilon / Visor — Modular Control Center Foundation
 
-## Objective and execution policy
+## Mission
 
-Inspect the existing repository first, then connect the existing camera through the existing API, worker, frame buffer and Visor. Complete a bounded real-camera validation and fix concrete integration defects only after the assessment is complete. Do not rebuild the architecture. This task authorizes local implementation fixes after assessment; it does not authorize changing camera/router configuration, installing global software, committing, pushing or deploying.
+Implement the first feature-development milestone in the existing Vigilon repository: a polished, modular Visor Control Center inspired by the user's fire-alarm console reference. Build a working UI foundation, reuse existing backend capabilities, and add only the backend structure and persistence necessary for this milestone. Make it easy for teammates to implement separate features without repeatedly editing the same files.
 
-Before editing code, write a concise assessment and proposed execution sequence to docs/CAMERA_INTEGRATION_ASSESSMENT.md and summarize it to the user. Continue with compatible, local, reversible fixes without requesting another routine approval. If a substantial architecture/API change appears necessary, describe the evidence and stop that change for a decision. Preserve unrelated work.
+This is an implementation task. Inspect, document the assessment, then implement and validate. Do not stop at a proposal, static mockup, or empty directory scaffold. Do not attempt to finish the entire product backlog in this task.
 
-## Current evidence supplied by the user (2026-10-22)
+## 1. Respect the local environment and existing work
 
-- Camera: Hikvision DS-2CD1143G2-LIU, powered by TP-Link ES206GP PoE switch port 4.
-- Password recovered through Hikvision software recovery; not a confirmed hardware reset.
-- Camera activated; browser login and real live view work.
-- DHCP enabled; last camera IP 192.168.1.102, mask 255.255.255.0, gateway 192.168.1.1.
-- Last PC IP 192.168.1.180 on Ethernet, Windows 11. The machine executing this task may be different: verify reachability from the actual worker host.
-- HTTP port 80; RTSP port 554.
-- User verified VLC playback of rtsp://192.168.1.102:554/Streaming/Channels/101 with admin credentials.
-- Channel 102 is a candidate substream, NOT verified: rtsp://192.168.1.102:554/Streaming/Channels/102.
-- ONVIF is disabled/not tested; not a prerequisite for this RTSP milestone.
-- DHCP reservation, encoding details, time synchronization and long-run stability are not verified.
-- No evidence yet of real frames reaching the Vigilon backend or Visor.
-- The people/vehicle team reported improved fine-tuning metrics, but checkpoint availability, compatibility and runtime inference inside this repository remain unverified.
+- Read applicable AGENTS.md files, README, architecture/status documents, and relevant source before editing. Inspect git status and preserve unrelated and pre-existing changes, including command.md and task.md.
+- Respect the user's existing Codex settings, ECC workflows, and configured MCP servers. Discover what is actually available. Use relevant installed skills (including archify if present and appropriate), Context7 for version-specific documentation when needed, and Playwright for UI verification when available. Do not claim to have used a tool that is unavailable.
+- Do not install, overwrite, or globally reconfigure ECC, MCP, Codex settings, or skills. Missing optional tools are not a reason to abandon otherwise feasible work; document the fallback.
+- Prefer the repository's existing frontend stack and conventions. The last reported frontend is plain JavaScript, not React. Use native modules and scoped CSS if appropriate. Do not introduce a framework migration, build system, microservices, or a new state-management dependency merely for this task.
+- Preserve current API contracts, session authentication, authorization, camera credentials encryption, worker separation, AI Hub integration, and supported routes. Do not downgrade the reported Ultralytics 8.4.0 pin or change model/tracking behavior.
+- Do not print secrets or add .env, camera credentials, live evidence, databases, or model weights to Git. Locally configured credentials may be used for authorized local tests without echoing their values.
+- Do not commit, push, publish, or modify camera/network configuration. Do not reset the existing database. Use an isolated test database for fixture-based QA.
+- Proceed autonomously on reversible implementation choices. Ask only for a genuinely blocking ambiguity, unavailable required credential, or physical action. Do not require approval after the assessment unless a material destructive change is necessary.
 
-Treat these as user-reported external checks, not checks you ran. Never claim VLC success establishes backend success. Do not use the previous camera IP 172.16.26.33.
+## 2. Known context — verify against the checkout
 
-## Phase 1: Read-only repository assessment
+Existing reported capabilities include FastAPI, SQLAlchemy/Alembic, SQLite locally, PostgreSQL via Compose, a separate ingestion worker, authenticated JPEG previews, encrypted RTSP credentials, camera CRUD/probe, normalized zones/lines, incident status/history/evidence, FILE analysis jobs, and AI package readiness.
 
-1. Confirm repo root, branch and git status. Read applicable AGENTS.md, README, implementation-status documents, architecture, camera compatibility, security and AI Hub docs. Respect existing Codex/ECC settings and available tools; do not modify global settings, hooks or MCP configuration. Do not assume a named tool is available.
-2. Inspect actual code and pinned dependencies, not only documentation. Locate:
-   - Camera/source create/edit/probe APIs and credential encryption/redaction.
-   - RTSP adapter, decoder backend, transport options, connection/read timeouts and process/thread cleanup.
-   - Worker ownership/lease, per-source lifecycle, bounded buffers, timestamps and stale-frame handling.
-   - Worker-to-API preview publication, shared storage and authenticated preview access.
-   - Visor camera management and Live Monitoring, including loading/offline/stale states.
-   - Model registry/validation/reload and scenario-to-incident integration.
-   - Existing tests and documented Windows startup commands.
-3. Identify which pieces already exist, which have mock-only evidence, and concrete gaps. Reference actual repository paths. Keep FastAPI, the existing database setup and frontend stack unless a real blocker proves a change necessary.
-4. Establish acceptance checks before making fixes. Do not add new ONVIF, streaming servers, dashboards, adapters or database tables simply to run this task.
+Existing Visor navigation reportedly includes Overview, Live Monitoring, Video Analysis, Incidents, AI Modules, and Settings. Preserve those workflows and deep links. Add Control Center as the operational landing view or integrate it with Overview with backward-compatible routing.
 
-## Phase 2: Local setup and credentials
+Real camera validation has previously passed for one Hikvision camera/channel on one host, with unresolved PermissionError, HEVC warnings, and an older-tab resource issue. Physical reconnect, other channels, general compatibility, and real AI inference are not established by that result. Do not silently change these readiness claims or turn old reports into new test evidence.
 
-- Use the current virtual environment and dependency locks. Inspect running services before starting anything; avoid duplicate ingestion workers and do not kill unrelated processes.
-- Prefer the currently functioning local database mode. Do not make Docker/PostgreSQL a prerequisite for a local SQLite camera test. Report environments not exercised.
-- Use the existing authenticated camera form to enter the password. The user must enter secrets locally; never request passwords in chat, command arguments, task files or screenshots. If unattended tooling needs a credential, use an existing secure mechanism or an ignored local secret file entered by the user; do not print its content.
-- Never log complete credential-bearing URLs. Redact credentials in errors, decoder stderr, reports and examples. Preserve encryption and existing password keep/clear semantics.
-- Preserve existing camera records; reuse or create one clearly named test source without duplicating it on reruns. Inspect existing URL/credential fields rather than assuming their schema.
-- If the host has no LAN access or credentials are missing, complete the assessment and useful local checks, then give the exact minimal user action required. Do not substitute a synthetic source and mark the physical camera passed.
+The user's eventual feature backlog is: custom maps/plans, single/multi-camera monitoring, per-camera rules, notifications, incident acknowledgement/resolution, historical logs/search, recorded-video analysis, and camera health/management. This milestone provides the shared foundation and a working Control Center slice; reuse existing workflows for the rest.
 
-## Phase 3: Real RTSP ingestion, without AI
+## 3. Inspect first, then implement
 
-Start with the user-verified channel 101 and the camera's CURRENT configuration. Do not change encoding just because H.264/1080p/15 FPS was previously suggested.
+Write a concise docs/CONTROL_CENTER_ASSESSMENT.md before substantial code changes. Record:
 
-1. Verify the specific camera host/port from the worker host using bounded checks; do not scan the LAN. Distinguish unreachable host, refused port, authentication failure and decoding failure where supported. If DHCP changed the address, ask the user for the current address instead of guessing.
-2. Use the existing connection-probe workflow and decoder to obtain real decoded frames. Observe codec, dimensions and stream metadata if exposed. Do not confuse configured stream FPS, decoded FPS and inference FPS.
-3. Add/enable the source through the existing application flow with AI disabled. Verify worker health, frame delivery and preview updates through the API and Visor.
-4. Run a bounded 10-minute ingestion test (configurable shorter diagnostic runs are allowed, but report actual duration). Monitor at short intervals without blocking communication. Record time to first frame, decoded/published frame counts where available, measured FPS, read failures, reconnect attempts, frame age, buffer occupancy/capacity and process resource usage at start/end. Do not invent measurements not exposed by the system.
-5. Verify freshness using sequence numbers/timestamps and a physical scene change if possible. A static scene can produce identical image hashes, so hash equality alone is not a valid frozen-stream detector. Distinguish local receipt age from true camera-to-screen latency; do not claim end-to-end latency without synchronized capture timestamps.
-6. Verify Visor shows current frames and honest online/stale/offline states. Prevent an old image being presented as current live footage after ingestion stops.
-7. Check bounded buffers remain bounded and old frames do not accumulate into growing live latency. Verify source shutdown releases resources.
-8. Optionally test channel 102 independently after 101 works. Record its actual resolution/codec and results. A successful low-resolution preview does not establish that small objects will be detectable; choose the AI stream later using real examples. Failure of unverified 102 must not invalidate working 101.
+1. Actual UI entry points, routing, CSS, API client, polling/subscription ownership, and cleanup behavior.
+2. Existing camera, preview, incident, evidence, audit, rule, and analysis APIs that will be reused.
+3. Existing location/device/owner fields and migrations, if any.
+4. The minimal extraction plan for large shared files; avoid a wholesale rewrite.
+5. Proposed feature boundaries, new data/API needs, and implementation sequence.
 
-## Phase 4: Controlled reconnect test
+Then continue implementation. Treat suggested paths below as a logical design; adapt them to the actual repository rather than creating a second competing architecture.
 
-- Use the existing source disable/enable operation to test application lifecycle separately from network loss.
-- For a genuine disconnect, ask the user to unplug/reconnect only the test camera's Ethernet cable. Explain that PoE removal also reboots the camera and report this as a power/network interruption. Do not disable the PC NIC, alter firewall/router settings or interrupt other devices.
-- Coordinate the physical action while observing the worker. Verify stale/offline indication, bounded reconnect backoff and automatic return to fresh frames without manually restarting the application.
-- Record recovery time from the camera becoming reachable again where possible; separate camera boot time from worker reconnect delay.
-- Verify there is no duplicate source reader/worker and no resource accumulation from repeated reconnects. Reset or invalidate downstream tracking state after a discontinuity using the existing contract.
-- If no physical action is available, explicitly mark REAL_DISCONNECT_RECOVERY as NOT_TESTED. A simulated failure or manual disable/enable is useful but is not equivalent evidence.
+## 4. UI reference and visual direction
 
-## Phase 5: Minimal fixes, only where evidence warrants them
+The reference is a desktop fire-alarm console with six simultaneous panels arranged as three columns and two rows:
 
-Make focused, backward-compatible fixes for defects discovered above, such as ineffective read timeouts, blocked shutdown, stale preview status, unsafe error logging or broken UI/API integration. Confirm decoder timeout/transport support in the actual installed versions using official docs or Context7 when available. Do not merely set an unsupported option and claim a timeout guarantee.
+| Position | Reference | Vigilon implementation |
+| --- | --- | --- |
+| Top left | Map | Custom floor plan and camera markers |
+| Top center | Camera | Live camera view, single/grid switch |
+| Top right | Browser | Location context, responsible contact, response guidance |
+| Bottom left | Event List | Operational incident queue |
+| Bottom center | Event Action | Selected event evidence, details, and actions |
+| Bottom right | Device image | Optional camera/device model, image, specifications, health |
 
-If a decoder can block despite configured timeouts, use the smallest architecture-compatible containment mechanism and demonstrate bounded failure behavior. Avoid broad rewrites. Add meaningful regression tests for repaired behavior; run existing relevant tests and syntax/diff checks. Keep mocked tests clearly distinguished from hardware tests.
+If the screenshot is available in the user's attachments or repository, inspect it. If unavailable, use this description and state the limitation; do not block implementation or invent an accessible file path.
 
-## Phase 6: Optional real AI validation, separately gated
+Use the reference's operational information hierarchy, with a modern visual treatment. Do not copy its old desktop chrome. Do not claim compliance with a fire-alarm standard or imply that Vigilon controls certified alarm equipment.
 
-Proceed only after real ingestion succeeds AND a trusted team-supplied checkpoint and matching package configuration are available. Do not download random weights or retrain as part of this task.
+Visual requirements:
 
-- Expected existing package paths, relative to repository root:
-  - models/people_vehicle/weights/best.pt
-  - models/fire_smoke/weights/best.pt
-- Read the actual manifest/config contract. Check architecture, task type, classes/IDs, checksum, provenance and compatibility with the pinned runtime. Do not assume that renaming an arbitrary checkpoint best.pt makes it compatible.
-- Run existing metadata/runtime validation and explicit reload. Verify the worker actually loaded the requested version; an accepted reload request alone is insufficient.
-- Missing weights must stay MISSING_WEIGHTS, with ingestion and raw preview working independently. Never fall back silently to SIMULATED detections.
-- Start with people_vehicle. Verify real observations, frame association, tracking IDs and processing speed. An empty scene with zero detections is not sufficient proof of successful person detection.
-- Let the user draw a zone/line through Visor and perform a safe walk-through. Test one selected rule end to end: actual detection -> tracking/rule -> event candidate -> persisted incident -> matching evidence -> acknowledgment/resolution and audit history.
-- Check an ordinary negative case and repeat an event to inspect deduplication. Confirm observations/evidence belong to the correct source/frame; ensure reconnect does not generate spurious crossing events from stale tracks.
-- Do not stage actual fire or dangerous falls. Fire/smoke model testing, if needed, uses authorized recorded footage in a separate FILE test and must not be represented as a physical-camera fire test.
-- These are integration checks, not a general accuracy certification. Report the team's training metrics separately from runtime checks.
+- Desktop-first, dense but readable. Use a restrained charcoal/navy surface, clear typography, consistent spacing, subtle borders, and visible focus states. Prefer existing local fonts/assets; do not require remote assets.
+- Make map and live video the dominant work areas. Keep the context/device column narrower and collapsible; reclaim its space when hidden. Do not force six equally sized cards.
+- Compact header: site/plan selector where applicable, camera/worker connectivity summary, active incident count, user/session controls.
+- Reserve red/amber for severity or warnings. Status must also have text/icons, not color alone. Keep incident severity separate from lifecycle status and camera health.
+- Provide panel expand/restore. Start with a stable responsive grid, not a draggable/dockable window framework.
+- At smaller widths, stack or tab panels while retaining access to event actions. No page-level horizontal overflow. Allow deliberate local table scrolling where needed.
+- Show explicit loading, empty, error, unavailable, stale, offline, and permission-denied states. Avoid placeholder buttons that appear functional.
+- Optional device information must not leave a large empty panel when absent.
 
-## Camera settings to report, not change silently
+## 5. Required working behavior
 
-Create a short checklist of actual and pending values: codec, resolution, FPS, bitrate/mode, I-frame interval, substream, camera time/timezone/NTP. Record unknown values as unknown. If decoding is blocked by an encoding setting, explain the observed error and propose the smallest manual change, recording old/new values if the user performs it.
+### A. Custom floor plan
 
-Recommend reserving the current camera address via router DHCP reservation as a follow-up, subject to the router supporting it. Do not set an arbitrary static IP that could conflict with the DHCP pool. ONVIF setup is deferred unless a specific existing integration requirement makes it necessary. No firmware upgrade is required by this task.
+- Support named plans with an optional location label, an uploaded PNG/JPEG image, and camera placements referencing existing camera/source IDs.
+- Reuse an existing site/building/floor model if present. Otherwise keep the initial location structure minimal; do not build a complex GIS or facility hierarchy merely to render a selector.
+- Implement plan create/update/list, validated image upload, and persistent placement editing. Provide a clear view/edit mode and an unplaced-camera list.
+- Store marker coordinates normalized to the image bounds, not screen pixels. Correctly handle letterboxing, resizing, zoom/pan, and any image replacement. A simple fit-to-view baseline is sufficient if zoom/pan would overcomplicate this milestone.
+- Allow markers to be placed, moved, and removed without deleting the underlying camera. Do not silently lose placements when changing plans/images.
+- Markers show camera health and indicate active incidents without inventing AI-confirmed positions. A camera marker indicates the camera's configured location, not the exact location of a detected person/fire.
+- Clicking a marker selects that camera and updates relevant panels. A camera without a placement remains usable everywhere else.
+- Protect image access with the existing auth model. Validate decoded image format, byte/pixel limits, and storage paths. Use generated storage names and the existing media/file patterns. Avoid arbitrary SVG/HTML uploads or remote image fetching in this milestone.
 
-## Evidence and delivery
+### B. Live monitoring panel
 
-Create/update docs/CAMERA_VALIDATION.md with:
-- Date, tested repo commit plus dirty-work note, actual execution environment and relevant versions.
-- Source ID and sanitized stream address, stream metadata, commands actually executed with no secrets.
-- Results for direct decode, existing probe API, worker ingestion, Visor preview, freshness, bounded-duration stability and reconnect, including durations/measurements.
-- Exact defects, fixes and regression checks.
-- Human-performed observations clearly attributed to the user.
-- Unverified items and reproducible next steps.
+- Reuse the existing preview transport. Do not open an additional RTSP connection for each UI panel or expose camera credentials in the browser.
+- Implement a selected-camera view and a bounded 2x2 grid using the existing preview capability. Limit concurrent subscriptions and make selection explicit.
+- Display camera name, connection state, frame timestamp/freshness, and REAL/SIMULATED state derived from actual data.
+- Stale or offline images must be visibly marked; never present the last frame as current video.
+- Share preview subscriptions where possible. Stop polling on unmount, logout, and hidden views; resume safely. Cancel stale requests and release object URLs/listeners. Avoid accumulating requests on repeated navigation.
+- Clearly distinguish live preview from the selected incident's historical snapshot.
 
-Preserve the repository's current readiness semantics. Distinguish in the report:
-- EXTERNAL_RTSP_VALIDATED: user-reported PASS for VLC channel 101.
-- BACKEND_INGESTION_VALIDATED: PASS only with real decoded frames through the actual worker and API.
-- VISOR_LIVE_VALIDATED: PASS only with real updating authenticated preview.
-- REAL_DISCONNECT_RECOVERY: PASS only after an observed real interruption and recovery.
-- REAL_MODEL_VALIDATED: only if real runtime/model checks pass; not inferred from metrics or mocks.
-- CAMERA_AI_E2E_VALIDATED: only if the actual camera event/evidence/operator workflow succeeds.
+### C. Event list
 
-Do not silently redefine CAMERA_VALIDATED. Inspect its documented meaning, state which checks it requires and set it only when those checks have evidence. If no definition exists, keep it pending and propose the precise gate in the report rather than fabricating one. New report labels do not require new persistent API statuses or migrations.
+- Reuse existing incident persistence; do not create a second event table for the same incidents.
+- Provide bounded/paginated fetching, status filters (new/acknowledged/all), and camera filtering. Add severity/type filters only when supported or coherently implemented.
+- Show timestamp, type, camera, severity if available, and lifecycle status. Do not fabricate severity values for historical records.
+- Clicking an event selects it, selects its camera, highlights a known placement, and updates details/context. If no placement/evidence exists, show that honestly.
+- Incoming events update the queue/count without stealing the operator's current selection or resetting scroll unnecessarily.
 
-Keep private footage/evidence, credentials, local databases, model binaries and machine-specific secrets out of Git. Store test artifacts in existing ignored local storage and reference sanitized evidence in documentation. Do not erase pre-existing recordings or data.
+### D. Event detail and actions
 
-Update IMPLEMENTATION_STATUS.md and relevant README instructions with actual results. Update AGENTS.md only if a concrete repo-specific workflow needs documenting; preserve current instructions and global settings.
+- Display incident identity, type, time, camera, existing rule/zone context where available, evidence, and history/notes.
+- Wire Acknowledge, Resolve, and False Alarm to existing authorized backend actions. Preserve existing status-transition rules and audit identity/time.
+- Acknowledge means a person has seen/taken responsibility for handling the event; it does not mean resolved.
+- Pending/error feedback must be clear; prevent accidental duplicate submissions. Update all affected panels after a successful action and handle stale state/API rejection without pretending success.
+- Use existing authenticated evidence routes. Handle missing/expired evidence separately from camera offline status.
+- Do not add controls to trigger/reset physical alarm hardware.
 
-Final response in Thai: what was inspected, what changed, what passed with real hardware versus mocks, what remains blocked, and exact Windows next steps. Include a suggested commit message reflecting actual changes. Do not commit or push.
+### E. Context and optional device details
+
+- Context includes configured location, optional responsible contact, and optional response notes. These are metadata, not AI-generated emergency instructions.
+- Keep the location's responsible contact concept distinct from an incident assignee. Do not imply assignment functionality if not implemented.
+- Optional device details: manufacturer/model, installed device image if supported, concise specifications, and existing health data. Missing values display as absent/unknown, never guessed from RTSP URLs.
+- Prefer existing fields. Where absent, add minimal nullable metadata and a small authorized edit form, without requiring extra fields to register a camera.
+- Provide links to existing camera settings, rules, incident history, and analysis pages. Those workflows must remain usable after the UI refactor.
+
+## 6. Modular frontend contracts
+
+Use feature modules with explicit public interfaces. Suggested logical ownership:
+
+| Module | Owns |
+| --- | --- |
+| control-center | Layout, composition, selection coordination |
+| maps | Plans, editor, markers, placements |
+| monitoring | Preview lifecycle, single/grid views |
+| incidents | Event list, detail, actions, history |
+| devices | Device metadata, health, context integration |
+| rules | Existing rule editor integration |
+| notifications | Existing in-app notifications and future integration boundary |
+| video-analysis | Existing recorded-video workflow |
+| shared | API transport, small UI primitives, theme tokens, formatting |
+
+- Keep feature-specific JS/CSS/tests inside their feature area. Scope styles; avoid broad selectors that alter other panels.
+- The application bootstrap should compose features rather than contain their implementation. Extract only the existing code necessary for this work.
+- Define a small coordinator/store for selectedPlanId, selectedCameraId, selectedIncidentId, and view mode. Define clear actions and immutable/read-only snapshots where practical. Keep server entities authoritative; selection state must not become a duplicate database.
+- Modules must not reach into each other's DOM or import private internals. Communicate through documented callbacks/actions/subscriptions.
+- Provide a lifecycle contract such as mount/update/dispose, adapted to the stack. Disposal must release requests, timers, listeners, and preview resources.
+- Prevent stale async responses from overwriting a newer selection. On plan switches, filters, deleted cameras, and unavailable incidents, apply documented deterministic behavior rather than creating selection loops.
+- Use one authenticated API transport that handles cancellation, errors, and session expiry. Do not introduce a separate login/token scheme.
+- Provide explicit fixture/demo providers for isolated development. Fixtures must be opt-in, clearly labeled DEMO/SIMULATED, and never a silent fallback when a real API fails. Do not contaminate the user's real camera database.
+- Avoid generic plugin frameworks or broad abstraction layers that do not solve a current dependency.
+
+## 7. Backend structure and contracts
+
+- Keep the existing FastAPI application and worker architecture. Reuse routers/services/models before introducing new ones.
+- Add cohesive router/schema/service boundaries for plans/placements and needed metadata, following existing naming conventions. Do not duplicate camera ingest, incidents, evidence, rules, or AI inference.
+- Preserve existing response contracts. Add endpoints/fields compatibly; document exact request/response examples from the implemented code, including errors and permission requirements.
+- Reuse existing camera identifiers and authorization. Enforce access server-side. Plan/placement/device edits should use existing administrative permissions; event handling should follow existing operator permissions.
+- Validate finite normalized coordinates within [0,1], references, names, file inputs, and optional metadata. Define uniqueness and deletion behavior explicitly; removing a plan/placement must not delete cameras or incident history.
+- For any new data, add reviewed Alembic migration(s), portable between SQLite and PostgreSQL. Do not generate migrations that drop/recreate populated tables for convenience.
+- Keep timestamps/timezone handling consistent with the current API. Store canonical times and format for display, not ambiguous local strings.
+- Use existing polling/event delivery if adequate. Do not require WebSockets, Redis, or a message broker just for this milestone. Bound query sizes and avoid per-marker request storms.
+- If implementing an aggregated read endpoint helps, make it a composition of existing services and document freshness; do not make it a second event authority.
+
+## 8. Team handoff and conflict reduction
+
+Create docs/FEATURE_MODULES.md and docs/CONTROL_CENTER_CONTRACTS.md describing actual implemented paths, public module interfaces, dependencies, API schemas, and extension examples.
+
+Create docs/FEATURE_OWNERSHIP.md with work packages and file boundaries rather than invented teammate names:
+
+1. Integration owner: shell, routing, shared state/API/theme, migration coordination.
+2. Map contributor: plans, marker editor, placements API/tests.
+3. Monitoring/device contributor: previews, camera context/health and metadata.
+4. Incident contributor: queue, details/actions, notification integration.
+5. Subsequent contributors: rules and recorded-video workflows through documented integration points.
+
+These are ownership packages, not a reassignment of the user's existing five-person AI/camera/PM team. Show which packages can be worked on independently and which require the integration owner's review.
+
+Give each package: owned files, public interface, prerequisites, acceptance checks, and shared files to avoid editing. Centralize shared contract changes and dependency-lock changes through the integration owner. Explain migration coordination to avoid duplicate Alembic heads. Do not create branches or CODEOWNERS entries with guessed identities.
+
+Update AGENTS.md carefully if needed with feature boundaries and development rules; preserve existing instructions. Do not turn the completed task into a permanently applicable instruction to rebuild the product.
+
+## 9. Implementation sequence
+
+1. Baseline assessment and relevant existing checks.
+2. Agree with the repository through code: define small module/state/API interfaces and record them in docs.
+3. Build shell/theme/layout and feature modules; preserve existing routes.
+4. Implement minimal persistent plans/placements/metadata and migrations.
+5. Connect actual camera, incident, evidence, and action APIs.
+6. Complete cross-panel selection, async cleanup, and explicit fixture mode.
+7. Run focused backend/frontend tests and browser QA; fix regressions caused by this change.
+8. Finish ownership/contract/runbook/status documents and a concise delivery report.
+
+## 10. Verification and acceptance gates
+
+Write meaningful tests for normalized placement validation and persistence, permissions, missing references, migration behavior, shared selection/stale responses, action failures, and subscription cleanup. Reuse existing test tools; do not add a large test framework merely to mirror implementation details.
+
+Browser QA using available Playwright tooling must cover:
+
+- Desktop 1440x900 (and larger if available), tablet 768px, and mobile 375px; no page overflow or obscured actions.
+- Login, Control Center entry, navigation to existing pages, and logout.
+- Empty site, missing plan, missing optional metadata, absent evidence, and unavailable camera.
+- Upload plan, place/move a camera, reload, and verify persistence and coordinate alignment.
+- Select marker -> correct camera/context. Select event -> correct camera/plan/details/evidence.
+- New event does not steal selection; quickly changing selections does not render stale details.
+- Single/grid switching, expand/restore, repeated page navigation, and resource cleanup with bounded network activity.
+- Acknowledge/resolve/false alarm success and API rejection; server-side authorization tests for mutation permissions.
+- Real API errors remain errors; demo mode remains visibly separate.
+
+Test fixture-based browser scenarios against an isolated environment. If the existing local camera is reachable and authorized credentials are already configured, perform a non-disruptive real preview smoke test, but do not require hardware availability to complete the UI foundation. Do not mutate the real incident history merely to demonstrate QA.
+
+Run applicable existing tests, syntax/type checks, migrations on a fresh temporary database and an upgrade path, and git diff --check. Test PostgreSQL/Compose only if available; report untested environments accurately. Preserve pre-existing failure records and distinguish new regressions from known failures.
+
+Definition of done:
+
+- A polished six-panel operational UI exists, with responsive/collapsible behavior.
+- Plans and camera placements persist and are usable after reload.
+- Existing camera previews and incident APIs drive the live UI.
+- Selection synchronization and incident actions work end to end with real backend responses (fixture data may be used in an isolated test database).
+- Modules have clean lifecycle/ownership boundaries; the new implementation is not another monolithic app.js.
+- Existing login, camera management, rules, AI Hub, and video analysis workflows remain accessible.
+- Relevant checks pass or specific blockers are documented with evidence; simulated tests are never described as hardware/AI validation.
+- A teammate can implement or modify one feature using the documented contracts without changing the shell or another feature's private files for routine work.
+
+## 11. Scope exclusions
+
+Do not add model training, new detection scenarios, ONVIF discovery, RTSP transport rewrites, physical alarm actuation, external notification services, full GIS, an NVR/video archive, a drag-and-dock framework, or a complete frontend framework migration. Do not fix unrelated historical issues unless they block this milestone; record them separately.
+
+## 12. Deliverables and final report
+
+Deliver implemented code, required migrations, focused tests, module/contract/ownership docs, a brief usage guide, and updated implementation status. Use docs/CONTROL_CENTER_IMPLEMENTATION.md or a consistent existing status document to record implemented vs deferred behavior.
+
+In the final response, report:
+
+1. Concrete working behavior and how to open/use the Control Center.
+2. Main feature directories and who can work on them independently.
+3. New endpoints/migrations and any required local setup commands.
+4. Tests and browser QA actually run, with outcomes.
+5. Known limitations, existing issues, and unverified hardware/runtime conditions.
+6. Suggested commit message: feat(visor): add modular control center foundation
+
+Do not claim all MVP features are finished. Do not commit or push.

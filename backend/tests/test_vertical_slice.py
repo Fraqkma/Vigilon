@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.main import app, valid_zone
 from app.adapters import SyntheticAdapter
 from app.rules import TemporalRuleEvaluator
-from app.db import Base, engine, Session, User, Role, Camera, Rule, Incident, IncidentStatus, Notification, Lease, now
+from app.db import Base, engine, Session, User, Role, Camera, Rule, Incident, IncidentStatus, Notification, Lease, FloorPlan, CameraPlacement, now
 from app.worker import process, acquire_lease
 
 def setup_module():
@@ -56,6 +56,38 @@ def test_demo_frame_to_authenticated_evidence_and_operator_history():
     with Session() as db: camera=db.get(Camera,incident["camera_id"])
     process(camera,SyntheticAdapter("obstruction").read(),TemporalRuleEvaluator())
     with Session() as db: assert len(db.scalars(select(Incident).where(Incident.camera_id==camera.id)).all())==1
+
+def test_control_center_floor_plan_placements_image_and_context_permissions():
+    import cv2, numpy as np
+    admin=TestClient(app);admin.post("/api/auth/login",json={"username":"admin","password":"test-admin-password"})
+    operator=TestClient(app);operator.post("/api/auth/login",json={"username":"operator","password":"test-operator-password"})
+    assert admin.get("/api/plans").status_code==200
+    assert operator.post("/api/plans",json={"name":"Denied"}).status_code==403
+    created=admin.post("/api/plans",json={"name":"North Wing","location_label":"Building A · Level 2"})
+    assert created.status_code==201,created.text
+    plan_id=created.json()["id"]
+    with Session() as db: camera_id=db.scalar(select(Camera).where(Camera.name=="Test demo")).id
+    image=np.full((40,80,3),220,dtype=np.uint8);ok,encoded=cv2.imencode(".png",image);assert ok
+    uploaded=admin.post(f"/api/plans/{plan_id}/image",content=encoded.tobytes(),headers={"Content-Type":"image/png"})
+    assert uploaded.status_code==200 and uploaded.json()["image_width"]==80
+    assert operator.post(f"/api/plans/{plan_id}/image",content=encoded.tobytes()).status_code==403
+    saved=admin.put(f"/api/plans/{plan_id}/placements",json={"placements":[{"camera_id":camera_id,"x":0.25,"y":0.75}]})
+    assert saved.status_code==200 and saved.json()["placements"]==[{"camera_id":camera_id,"x":0.25,"y":0.75}]
+    assert admin.get("/api/plans").json()[0]["placements"][0]["x"]==0.25
+    assert admin.get(f"/api/plans/{plan_id}/image").content[:8]==b"\x89PNG\r\n\x1a\n"
+    assert operator.put(f"/api/plans/{plan_id}/placements",json={"placements":[]}).status_code==403
+    assert admin.put(f"/api/plans/{plan_id}/placements",json={"placements":[{"camera_id":camera_id,"x":1.1,"y":0}]}).status_code==422
+    assert admin.put(f"/api/plans/{plan_id}/placements",json={"placements":[{"camera_id":9999,"x":0.2,"y":0.3}]}).status_code==422
+    duplicate={"placements":[{"camera_id":camera_id,"x":0.2,"y":0.3},{"camera_id":camera_id,"x":0.4,"y":0.5}]}
+    assert admin.put(f"/api/plans/{plan_id}/placements",json=duplicate).status_code==422
+    assert admin.put(f"/api/cameras/{camera_id}/context",json={"manufacturer":"Example","model":"Camera X","responsible_contact":"Facilities","response_notes":"Check north entrance"}).status_code==200
+    assert admin.get("/api/cameras").json()[0]["manufacturer"]=="Example"
+    assert operator.put(f"/api/cameras/{camera_id}/context",json={}).status_code==403
+    assert admin.delete(f"/api/plans/{plan_id}").status_code==204
+    assert admin.get("/api/plans").json()==[]
+    with Session() as db:
+        assert db.get(Camera,camera_id) is not None
+        assert db.scalar(select(CameraPlacement).where(CameraPlacement.camera_id==camera_id)) is None
 
 def test_roles_zone_geometry_and_simulated_camera_secret_boundaries():
     assert valid_zone({"type":"polygon","points":[[0,0],[1,0],[1,1],[0,1]]})

@@ -10,6 +10,7 @@
 - [x] Add an explicit generated SIMULATED file-job path for QA; uploaded footage is never processed with simulated detections.
 - [x] Add focused API contract tests and run browser checks at 1440, 768, and 375 CSS pixels.
 - [x] Update operational docs with observed outcomes and explicit real-model/camera/deployment limits.
+- [x] Add Control Center as the landing view with six operational panels, persistent plans/placements, optional device context, and existing incident workflows; see [Control Center assessment](CONTROL_CENTER_ASSESSMENT.md) and [status](IMPLEMENTATION_STATUS.md).
 
 ## Existing application map
 
