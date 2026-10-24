@@ -35,6 +35,15 @@ class Transition(Base):
 class Notification(Base):
     __tablename__="notifications"
     id: Mapped[int]=mapped_column(primary_key=True); incident_id: Mapped[int]=mapped_column(ForeignKey("incidents.id")); kind: Mapped[str]=mapped_column(String(32)); created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now); read: Mapped[bool]=mapped_column(Boolean,default=False)
+class CameraHealthEvent(Base):
+    """One recorded camera state change (ONLINE/OFFLINE/DISABLED/UNKNOWN), written by the worker."""
+    __tablename__="camera_health_events"
+    id: Mapped[int]=mapped_column(primary_key=True)
+    camera_id: Mapped[int]=mapped_column(ForeignKey("cameras.id",ondelete="CASCADE"),index=True)
+    at: Mapped[datetime]=mapped_column(DateTime(timezone=True),default=now,index=True)
+    from_status: Mapped[str]=mapped_column(String(24),default="")
+    to_status: Mapped[str]=mapped_column(String(24))
+    error_category: Mapped[str]=mapped_column(String(48),default="")
 class Lease(Base):
     __tablename__="worker_lease"
     id: Mapped[int]=mapped_column(primary_key=True); owner: Mapped[str]=mapped_column(String(80)); expires: Mapped[datetime]=mapped_column(DateTime(timezone=True))
