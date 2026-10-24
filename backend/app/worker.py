@@ -53,6 +53,9 @@ class SourceRunner:
     def adapter(self):
         c=self.camera
         if c.source_type=="synthetic": return SyntheticAdapter(c.scenario)
+        if c.source_type=="webcam":
+            from .webcam_adapter import WebcamAdapter
+            return WebcamAdapter(c.connection,timeout=c.timeout_seconds)
         connection=fernet.decrypt(c.secret.encode()).decode() if c.secret else c.connection
         return OpenCVAdapter(c.source_type,connection,MEDIA_DIR,timeout=c.timeout_seconds)
     def run(self):
