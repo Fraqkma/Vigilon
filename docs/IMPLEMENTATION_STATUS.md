@@ -1,5 +1,11 @@
 # Implementation status
 
+## Map feature completion (2026-10-24)
+
+Implemented on `feat/map` from foundation commit `febc25f`: responsive custom floor-plan viewer/editor, authenticated PNG/JPEG preview/upload, create/rename/location editing/deletion, keep-or-clear replacement policy, normalized camera placements with draft/save/cancel, drag and numeric coordinate editing, pan/zoom/fit and keyboard controls, searchable camera list, health/incident marker state, and guarded navigation when placement drafts are dirty. Existing camera/incident selection remains coordinated in Control Center. Placement updates use replace-all transactions and revision compare-and-swap; stale updates and cross-plan duplicate cameras return 409. Migration `0005_map_revision` follows `0004_control_center`.
+
+Verification: full backend suite **29 passed** (one existing Starlette/AnyIO deprecation warning); focused Map API test **1 passed**; pure geometry unit tests **5 passed**; frontend syntax checks, Python compileall and `git diff --check` passed; fresh and 0004-to-head SQLite migrations passed. Playwright on an isolated SQLite/API setup confirmed plan creation, generated PNG upload, camera placement/save/reload and 1440/768/375 viewport widths without horizontal overflow. The worker was not started in this browser setup, so its preview was offline/unavailable. PostgreSQL/Compose, physical cameras and real model behavior were not tested. Detailed API, replacement and test boundaries are in [Map feature](MAP_FEATURE.md).
+
 ## Modular Control Center foundation (2026-10-24)
 
 Added the Control Center as the post-login landing view while preserving all six previous destinations. It renders six responsive panels: floor plan, live monitor, location context, device details, incident queue, and selected incident actions/evidence. View mode supports a selected camera or up to four existing authenticated previews; stale/offline frames carry an overlay and SIMULATED sources are labeled. Panel expansion, filterable incident selection, successful server-backed operator actions, explicit unavailable evidence, optional camera context editing, and plan marker selection/placement/removal are wired into existing APIs.

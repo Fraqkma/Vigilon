@@ -68,25 +68,49 @@ def test_control_center_floor_plan_placements_image_and_context_permissions():
     plan_id=created.json()["id"]
     with Session() as db: camera_id=db.scalar(select(Camera).where(Camera.name=="Test demo")).id
     image=np.full((40,80,3),220,dtype=np.uint8);ok,encoded=cv2.imencode(".png",image);assert ok
-    uploaded=admin.post(f"/api/plans/{plan_id}/image",content=encoded.tobytes(),headers={"Content-Type":"image/png"})
-    assert uploaded.status_code==200 and uploaded.json()["image_width"]==80
-    assert operator.post(f"/api/plans/{plan_id}/image",content=encoded.tobytes()).status_code==403
-    saved=admin.put(f"/api/plans/{plan_id}/placements",json={"placements":[{"camera_id":camera_id,"x":0.25,"y":0.75}]})
-    assert saved.status_code==200 and saved.json()["placements"]==[{"camera_id":camera_id,"x":0.25,"y":0.75}]
+    uploaded=admin.post(f"/api/plans/{plan_id}/image?revision=1&placement_policy=keep",content=encoded.tobytes(),headers={"Content-Type":"image/png"})
+    assert uploaded.status_code==200 and uploaded.json()["image_width"]==80 and uploaded.json()["revision"]==2
+    assert operator.post(f"/api/plans/{plan_id}/image?revision=2",content=encoded.tobytes()).status_code==403
+    saved=admin.put(f"/api/plans/{plan_id}/placements",json={"revision":2,"placements":[{"camera_id":camera_id,"x":0.25,"y":0.75}]})
+    assert saved.status_code==200 and saved.json()["placements"]==[{"camera_id":camera_id,"x":0.25,"y":0.75}] and saved.json()["revision"]==3
     assert admin.get("/api/plans").json()[0]["placements"][0]["x"]==0.25
     assert admin.get(f"/api/plans/{plan_id}/image").content[:8]==b"\x89PNG\r\n\x1a\n"
-    assert operator.put(f"/api/plans/{plan_id}/placements",json={"placements":[]}).status_code==403
-    assert admin.put(f"/api/plans/{plan_id}/placements",json={"placements":[{"camera_id":camera_id,"x":1.1,"y":0}]}).status_code==422
-    assert admin.put(f"/api/plans/{plan_id}/placements",json={"placements":[{"camera_id":9999,"x":0.2,"y":0.3}]}).status_code==422
-    duplicate={"placements":[{"camera_id":camera_id,"x":0.2,"y":0.3},{"camera_id":camera_id,"x":0.4,"y":0.5}]}
+    assert operator.put(f"/api/plans/{plan_id}/placements",json={"revision":3,"placements":[]}).status_code==403
+    assert admin.put(f"/api/plans/{plan_id}/placements",json={"revision":3,"placements":[{"camera_id":camera_id,"x":1.1,"y":0}]}).status_code==422
+    assert admin.put(f"/api/plans/{plan_id}/placements",content=f'{{"revision":3,"placements":[{{"camera_id":{camera_id},"x":NaN,"y":0}}]}}',headers={"Content-Type":"application/json"}).status_code==422
+    assert admin.put(f"/api/plans/{plan_id}/placements",json={"revision":3,"placements":[{"camera_id":9999,"x":0.2,"y":0.3}]}).status_code==422
+    duplicate={"revision":3,"placements":[{"camera_id":camera_id,"x":0.2,"y":0.3},{"camera_id":camera_id,"x":0.4,"y":0.5}]}
     assert admin.put(f"/api/plans/{plan_id}/placements",json=duplicate).status_code==422
+    assert admin.put(f"/api/plans/{plan_id}/placements",json={"revision":2,"placements":[]}).status_code==409
+    second=admin.post("/api/plans",json={"name":"Other Wing"}).json()
+    assert admin.put(f"/api/plans/{second['id']}/placements",json={"revision":second['revision'],"placements":[{"camera_id":camera_id,"x":0.3,"y":0.4}]}).status_code==409
+    keep=admin.post(f"/api/plans/{plan_id}/image?revision=3&placement_policy=keep",content=encoded.tobytes(),headers={"Content-Type":"image/png"})
+    assert keep.status_code==200 and keep.json()["placements"][0]["camera_id"]==camera_id
+    before=admin.get(f"/api/plans/{plan_id}/image").content
+    stale_upload=admin.post(f"/api/plans/{plan_id}/image?revision=3&placement_policy=clear",content=encoded.tobytes(),headers={"Content-Type":"image/png"})
+    assert stale_upload.status_code==409 and admin.get(f"/api/plans/{plan_id}/image").content==before
+    cleared=admin.post(f"/api/plans/{plan_id}/image?revision=4&placement_policy=clear",content=encoded.tobytes(),headers={"Content-Type":"image/png"})
+    assert cleared.status_code==200 and cleared.json()["placements"]==[] and cleared.json()["revision"]==5
+    from PIL import Image
+    from io import BytesIO
+    oriented=Image.new("RGB",(80,40),(20,30,40));exif=oriented.getexif();exif[274]=6;output=BytesIO();oriented.save(output,format="JPEG",exif=exif)
+    oriented_upload=admin.post(f"/api/plans/{plan_id}/image?revision=5&placement_policy=keep",content=output.getvalue(),headers={"Content-Type":"image/jpeg"})
+    assert oriented_upload.status_code==200 and (oriented_upload.json()["image_width"],oriented_upload.json()["image_height"])==(40,80)
+    with Image.open(BytesIO(admin.get(f"/api/plans/{plan_id}/image").content)) as normalized:assert normalized.getexif().get(274,1)==1
     assert admin.put(f"/api/cameras/{camera_id}/context",json={"manufacturer":"Example","model":"Camera X","responsible_contact":"Facilities","response_notes":"Check north entrance"}).status_code==200
     assert admin.get("/api/cameras").json()[0]["manufacturer"]=="Example"
     assert operator.put(f"/api/cameras/{camera_id}/context",json={}).status_code==403
+    with Session.begin() as db:
+        rule=db.scalar(select(Rule).where(Rule.camera_id==camera_id))
+        preserved=Incident(camera_id=camera_id,rule_id=rule.id,event_type=rule.event_type,status=IncidentStatus.RESOLVED,severity="LOW",simulated=True,snapshot="map-test.jpg",metadata_json={},config_snapshot={})
+        db.add(preserved);db.flush();preserved_id=preserved.id
     assert admin.delete(f"/api/plans/{plan_id}").status_code==204
+    assert len(admin.get("/api/plans").json())==1
+    assert admin.delete(f"/api/plans/{second['id']}").status_code==204
     assert admin.get("/api/plans").json()==[]
     with Session() as db:
         assert db.get(Camera,camera_id) is not None
+        assert db.get(Incident,preserved_id) is not None
         assert db.scalar(select(CameraPlacement).where(CameraPlacement.camera_id==camera_id)) is None
 
 def test_roles_zone_geometry_and_simulated_camera_secret_boundaries():
