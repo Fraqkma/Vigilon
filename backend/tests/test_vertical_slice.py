@@ -38,6 +38,8 @@ def test_demo_frame_to_authenticated_evidence_and_operator_history():
     assert client.post("/api/auth/login",json={"username":"operator","password":"test-operator-password"}).status_code==200
     preview=client.get(f"/api/cameras/{camera.id}/preview")
     assert preview.status_code==200 and preview.headers["content-type"]=="image/jpeg" and preview.headers["x-simulation"]=="SIMULATED"
+    assert preview.headers["cache-control"]=="no-store" and preview.headers["x-frame-id"] and int(preview.headers["x-frame-age-ms"])>=0
+    assert preview.headers["x-captured-at"] and int(preview.headers["x-frame-width"])>0 and int(preview.headers["x-frame-height"])>0
     incident=client.get("/api/incidents").json()[0]
     assert incident["simulated"] is True and incident["snapshot_available"]
     evidence=client.get(f"/api/incidents/{incident['id']}/evidence")

@@ -1,164 +1,166 @@
-# Vigilon / Visor — Complete the Map Feature on Its Own Branch
+# Vigilon / Visor — Live Monitoring Feature
 
-## Objective
+## Mission
 
-Finish the custom floor-plan Map feature on top of the committed modular Control Center foundation. Deliver a usable, persistent map viewer/editor integrated with existing camera and incident selection. This is implementation work: inspect the current code, identify gaps, implement them, test, and document the result. Do not rebuild features that already work.
+Complete Live Monitoring on a dedicated feature branch and integrate it with BOTH the existing Control Center camera panel and the existing Live Monitoring page. Build on the committed foundation and Map feature. This is an implementation task: inspect, implement missing behavior, test, and document. Do not deliver a disconnected replacement page or only a mockup.
 
-The user is separating product features into individual branches. This task owns Map only. Preserve clear boundaries so monitoring, incident handling, rules, notifications, and video analysis can evolve independently.
+The two UI surfaces must use the same monitoring implementation and preview lifecycle. Preserve the user's current visual design, map editor, incident workflows, authentication, and navigation.
 
-## 1. Environment, instructions, and branch
+## 1. Instructions, tooling, and branch safety
 
-- Read applicable AGENTS.md files, README, CONTROL_CENTER_ASSESSMENT.md, CONTROL_CENTER_CONTRACTS.md, FEATURE_MODULES.md, FEATURE_OWNERSHIP.md, and relevant implementation status/source. Missing documents should be reported, not invented.
-- Respect existing Codex settings, ECC workflows, and configured MCP tools. Discover actual availability. Use relevant installed skills, including archify when appropriate, Context7 for documentation when needed, and Playwright for browser verification. Do not reconfigure or reinstall global settings/tools, or claim unavailable tools were used.
-- Inspect repository root, current branch, git status, recent commits, and worktrees before changing anything. The user reports the Control Center foundation is committed; verify the current checkout contains it.
-- Use branch `feat/map`. If already on that branch, continue. If it does not exist and the current HEAD contains the intended committed foundation, create it from that HEAD. Record the actual base commit. Do not assume the base branch is named main or that a remote branch is newer.
-- If `feat/map` already exists elsewhere or switching would mix another feature's changes, use an isolated worktree based on the verified foundation with a descriptive unused map branch name. Do not reset, discard, stash, or move another contributor's changes automatically. A pre-existing task.md edit is user input, not permission to rewrite it.
-- Do not fetch/merge/rebase other feature branches, commit, push, open a PR, or delete branches in this task. Report the resulting branch and worktree path.
-- Keep secrets, local databases, uploaded plans, evidence, and model weights out of Git. Do not alter camera/network configuration or production data for tests.
+- Read applicable AGENTS.md, README, feature ownership/contracts, MAP_FEATURE.md, architecture/status documents, and relevant source first. Respect existing Codex settings, ECC workflows, and configured MCP tools. Discover actual capabilities; use relevant installed skills such as archify where appropriate, Context7 when version-specific documentation is needed, and Playwright for browser QA. Do not reinstall or change global tool settings. Report unavailable tools and use a reasonable fallback.
+- Verify repository root, git status, branch, recent commits, and worktrees. The user reports Map is committed on feat/map; merging into the main integration branch has NOT been confirmed.
+- Create/use `feat/live-monitoring` from a verified commit containing both the Control Center foundation and completed Map feature. If the current checkout is the committed feat/map tip, branching directly from it is allowed; document that this is a stacked branch depending on Map. Do not assume main contains Map, merge branches automatically, or include unrelated feature commits.
+- If the desired branch already exists, inspect it before using it. If another task/worktree owns it or dirty unrelated work would be mixed in, use an isolated worktree with a descriptive unused branch name. Preserve all user changes, including task.md. Do not reset, discard, stash, or move unrelated changes automatically.
+- Record branch, actual base SHA, worktree, and Map dependency. Do not commit, push, open a PR, merge, rebase, or delete branches.
+- Use the project's existing frontend stack and backend conventions. No framework migration, new RTSP proxy stack, Redis, or microservices merely for this task.
+- Do not print credentials, change encryption/signing keys, or commit .env, databases, captured frames, videos, or model weights. Existing local credentials may be used for authorized local testing without exposing their values.
 
-## 2. Existing baseline to verify
+## 2. Baseline and assessment
 
-The latest user report says:
+Reported baseline, to verify against code:
 
-- Control Center is the default page and uses modules under frontend/features.
-- Plan creation/editing/image upload and normalized camera placement already exist.
-- Camera/event selection synchronizes panels; context and device metadata exist.
-- Migration `0004_control_center` adds relevant persistence.
-- Backend suite passed 29 tests; SQLite fresh and upgrade migrations passed.
-- Browser checks covered plan upload/placement, selection, context, incident actions, polling cleanup, and mobile logout.
-- PostgreSQL/Compose, real camera/model integration, and camera codec behavior were not validated during that change.
+- FastAPI and SQLAlchemy/Alembic; API and ingestion worker run separately.
+- RTSP/RTSPS, FILE, and synthetic sources; per-source bounded frame buffers and reconnect logic.
+- Worker publishes JPEG/manifest data for authenticated preview; browsers do not receive camera credentials.
+- Modular Control Center with shared plan/camera/incident selection; existing Live Monitoring and camera/rule management pages.
+- Map supports plan management, pan/zoom, placement editing, save/cancel, revision conflicts, and cross-panel selection. Migration 0005_map_revision reportedly follows 0004_control_center.
+- AI packages may still lack weights. Do not assume any real inference works.
+- Earlier physical camera test: one Hikvision main stream decoded successfully and displayed a 1280x720 preview, around 1.98 decoded/queued FPS. There were PermissionError publishing errors, HEVC warnings, and an older browser tab resource issue. These are historical observations, not current validation or proof of their causes.
 
-These are reported results, not tests run by you. Do not recreate tables or rewrite migration 0004. Inspect actual implementations and preserve working behavior.
+Start docs/LIVE_MONITORING_FEATURE.md with a short gap assessment:
 
-## 3. Map scope and gap assessment
+1. Existing UI entry points, preview component, timers, subscriptions, API client, and cleanup.
+2. Actual preview transport, headers/manifests, freshness metadata, camera/worker health semantics, auth, and relevant endpoints.
+3. Existing frame identity and possible stale-frame/race behavior.
+4. Minimal module extraction and shared-file changes needed.
+5. Current branch/base and existing tests.
 
-Write `docs/MAP_FEATURE.md` with a concise assessment table: requirement, existing implementation, gap, intended change, actual owned paths. Then continue coding without waiting for approval on routine reversible decisions.
+Then proceed with implementation; do not stop at the assessment.
 
-Map means uploaded custom floor plans/site diagrams, not a geographic map service. Support multiple independent plans with simple names/location labels. Reuse any existing hierarchy, but do not add a large building/floor/site administration system just for this feature.
+## 3. User-facing behavior
 
-Deliver the following behaviors end to end, reusing existing ones where complete.
+### A. One monitoring module, two integrated surfaces
 
-### A. Plan management
+- Extend the actual existing monitoring feature directory, or create a narrowly scoped one if missing. Both Control Center and Live Monitoring page must compose its public interfaces.
+- Control Center: compact selected-camera view plus a 2x2 grid option, using existing panel chrome and expand/restore behavior.
+- Dedicated Live Monitoring page: single-camera and 2x2 grid views, camera search/filter, slot selection, and a clear return/open-in-Control-Center action. Four simultaneous visible previews are sufficient for this milestone; do not advertise untested larger grids.
+- Preserve existing route URLs/deep links where possible. Selecting a camera then opening the other surface must retain the intended selection through the existing coordinator/router.
+- Retain existing rule/settings/AI module actions via real links or existing controls. Do not rebuild those features inside monitoring.
+- Use existing theme tokens, spacing, icons, and typography. Keep video dominant, actions compact, labels readable, and responsive layouts usable at 375/768/1440 pixels. No page-level horizontal overflow.
 
-- List/select plans; create and rename plans; edit existing supported location labels.
-- Upload PNG/JPEG with a clear preview and validation feedback. Fit the image without distortion.
-- Replace the background image safely using the workflow below.
-- Delete a plan with a normal confirmation that explains which placements are removed. Never delete its cameras, incidents, rules, or evidence. Handle selection of a deleted plan deterministically.
-- Clear empty states: no plans, plan without image, no cameras, no placements, and no permission to edit. Do not automatically create demo records in a real database.
-- Persist data on the backend and verify reload behavior. Remembering the selected plan locally is optional; validate it still exists and scope any preference to the authenticated user. Clear incompatible state on logout.
+### B. Camera selection and grids
 
-### B. View mode
+- List existing cameras with name and real health state. Search by existing name/location fields and filter by health where supported. Do not expose RTSP URLs or credentials.
+- Single mode displays the selected camera. Grid mode supports explicit camera assignment/replacement/removal per slot and clear empty-slot states.
+- Avoid duplicate camera assignments within one grid; explain or focus the existing slot instead of silently creating duplicates.
+- Selecting a tile updates selectedCameraId and existing map/device context without forcing the entire grid to single mode.
+- External map/event selection focuses the existing tile if already present. If absent, use a documented deterministic policy such as replacing the active slot, while preserving other slots. When no active slot exists, use the first empty slot, otherwise the first slot. Do not unexpectedly repopulate the whole grid.
+- Preserve Map's unsaved-edit guard: monitoring selection must not force map navigation or discard placement edits. Use public selection actions; let Map apply its own guard.
+- New incidents may update badges but must not steal selected camera, change grid assignments, or interrupt operator viewing.
+- Preferences may be persisted locally if useful, scoped by user and validated against available cameras. Do not store credentials or images in browser persistence.
 
-- Display the plan with pan, bounded zoom in/out, and Fit/Reset controls. Wheel zoom should anchor at the pointer where practical and must not hijack scrolling outside the map. Provide buttons for touch/keyboard users.
-- Resizing, panel expansion, and device rotation must preserve correct marker alignment. Rendering and hit testing must use the same image-to-screen transform.
-- Show readable camera markers with short labels/tooltips, selected state, actual health, and a badge/count for relevant active incidents when available through the existing incident contract.
-- Keep health, selection, and incident severity distinguishable. Include a compact legend and text equivalents; avoid color-only meaning or continuous flashing.
-- Clicking a marker selects that existing camera through the shared coordinator. Keep monitoring/context integration working without private DOM access.
-- Provide an accessible camera list/search alongside or inside the map panel, including unplaced cameras, so small or overlapping markers are still usable.
-- Show loading, request error, unavailable image, stale/unknown health, and retry states honestly. Cached last-known health must not silently remain ONLINE after refresh failure.
+### C. Preview controls and truthful states
 
-### C. Edit mode and placements
+- Show camera name, connection state, frame capture timestamp where available, preview freshness, and actual REAL/SIMULATED source designation.
+- Separate source connectivity, worker availability, and displayed-frame freshness. An ONLINE reader does not prove the displayed JPEG is fresh.
+- Cover no selection, initial loading, source disabled, connecting/reconnecting, offline, stale frame, worker unavailable, access denied, session expired, and preview error. Use actual available signals; show unknown when evidence is absent.
+- Retain the last good image only with an explicit stale/offline/paused overlay and last-frame time. Never relabel a cached frame as live because its HTTP request succeeded.
+- Provide Retry preview, expand/restore, and optional browser fullscreen with graceful unsupported behavior. Retry should retry the UI/API operation, not reboot the camera or start an extra reader.
+- Provide Pause/Resume preview if useful. Label it as a display-only action: it must not disable the source, ingestion, or AI monitoring. Do not add a global stop-monitoring switch disguised as pause.
+- Camera enable/disable remains an explicit existing administrative action, subject to server permissions; preserve existing access without duplicating the management UI.
+- Keep incident snapshots separate from live images. Selecting a historical incident must not overwrite the live panel with evidence labeled LIVE.
+- Never render invented bounding boxes, tracking IDs, counts, or AI statuses. Reuse existing real overlay data only if it includes a reliable matching frame identity/dimensions; otherwise leave overlays out and document the reason. Do not overlay old detections on a newer frame.
+- No audio, recording, PTZ, or camera controls unless already implemented and safely reusable; do not add fake action buttons.
 
-- Clearly separate view and edit mode. Gate mutations by existing backend authorization; hiding buttons alone is insufficient.
-- Allow selecting an existing camera from an unplaced list and clicking the image to place it. Support repositioning by dragging and a non-drag alternative such as selecting a marker and choosing a new point or editing normalized coordinates.
-- Allow removing a placement without deleting the camera. Include explicit Save and Cancel controls for draft edits, saving/error states, and an unsaved-changes guard when switching plans, leaving the editor/page, or replacing the image.
-- Cancel must restore the last persisted state. Failed saves must retain recoverable edits and show the actual failure rather than falsely displaying success.
-- Document camera-placement cardinality from the existing schema. Preserve it unless a necessary change is justified. A suitable default when unspecified is one placement per camera per plan; never silently relocate a camera on another plan or introduce duplicate markers contrary to the existing contract.
-- Prefer an atomic save for a set of placement changes. Reuse existing transaction/bulk behavior if present; if missing, add a minimal compatible map-specific operation. Do not allow partially saved edits to appear as a successful complete save.
-- Prevent lost updates between tabs/operators: reuse revision/ETag support if available, otherwise add a small map revision/optimistic concurrency check. Reject a stale save with a clear conflict response and reload/reapply workflow; do not overwrite another operator's placements silently.
+## 4. Preview lifecycle and resource limits
 
-### D. Coordinate correctness
+Reuse the current authenticated JPEG/manifest transport unless a verified blocking defect requires a narrow fix. This milestone does not require WebRTC/HLS/MJPEG migration or browser-direct RTSP.
 
-- Store finite normalized coordinates within [0,1] relative to the decoded image, independent of viewport pixels. Preserve the existing coordinate convention and document the origin/axes.
-- Use one tested transform/inverse-transform implementation for placement, dragging, zoom, pan, and hit testing. Account for the image's actual bounds, letterboxing, scroll/container offset, and the chosen transform order. Handle pixel ratio if using canvas.
-- Clicks in margins outside the image must not create a placement. Dragging beyond bounds must clamp consistently or reject with clear feedback.
-- Pointer cancellation/lost capture must not leave dragging active. Disallow accidental placement during pan gestures.
-- Image replacement must never imply automatically calibrated placement. Offer explicit choices: keep normalized placements and review against the new image, or clear placements. Warn that even an identical aspect ratio does not imply identical floor-plan geometry.
-- Make replacement image plus the chosen placement policy consistent as one logical operation. If upload/validation/save fails, retain the previous usable image and placements. Do not delete the old asset before the new state commits.
+- Build/reuse one per-tab preview subscription manager keyed by source ID. Multiple consumers of one camera share its fetch lifecycle; use reference counting or an equivalent explicit ownership model.
+- Only visible, active consumers request frames. Release subscriptions when slots change, pages/panels unmount, or the user logs out. Pause or stop requests when the document is hidden; resume promptly without a request burst. Do not unexpectedly unpause a user-paused preview.
+- At most one in-flight preview fetch per source, plus a bounded global concurrency cap suitable for four visible cameras. Schedule the next fetch after completion, not overlapping setInterval calls.
+- Apply reasonable timeouts and bounded retry backoff for network/5xx failures. Distinguish auth failures from transient failures; do not retry forever after logout or forbidden responses.
+- Abort obsolete requests. Use generation/frame identity checks so a late response cannot paint a different slot, camera, or logged-out screen.
+- Revoke replaced object URLs and release listeners, observers, timers, and image resources. Repeated navigation must not create accumulating polling loops or detached live consumers.
+- Reuse shared health refresh data or one bounded batch request; do not add one independent health poll per component/marker. Do not introduce extra camera connections to display four tiles.
+- Respect server freshness/cache contracts. Use cache behavior that avoids stale authenticated previews without generating unbounded unique DOM/images. Compare actual frame identity/timestamp; repeated bytes or repeated frame IDs are not newly captured frames.
+- If metadata and JPEG can refer to different frames, inspect the handoff contract and add the minimal compatible mechanism (for example frame ID/timestamp returned with the actual preview response). Do not treat an unrelated current manifest timestamp as proof of an old image's freshness.
+- Handle timestamp clock differences sensibly. Prefer server-reported age/health plus monotonic elapsed time since receipt where feasible; do not claim precise latency from unsynchronized browser/camera clocks. Document timestamp meanings and configurable stale thresholds.
+- Separate source FPS, configured sampling FPS, actual preview refresh rate, and inference FPS. Do not promise or force 25/30 FPS. The objective is current, stable, bounded monitoring with measured refresh behavior.
 
-### E. Camera/event integration
+## 5. Backend boundaries and compatibility
 
-- Use existing selectedCameraId/selectedIncidentId/selectedPlanId interfaces or their actual equivalents. Do not add a competing global store.
-- When an event/camera is selected outside the map, highlight its placement if present. If the current plan contains it, keep that plan. If only one other plan contains it, reveal that plan when no unsaved edit blocks switching. If several plans contain it, prefer the current matching plan or offer a deterministic chooser; do not jump arbitrarily.
-- If no placement exists, show an explicit unplaced/not-on-this-plan state while preserving event/camera selection and keeping the rest of Control Center usable.
-- Never discard unsaved edits due to external selection. Keep the current editing plan and offer a deliberate navigation action if needed.
-- Incoming incidents may update markers/counts but must not steal selection, pan/zoom, or reset edits. Reuse existing lifecycle semantics for active incidents rather than inventing new status rules.
-- A marker represents the configured camera location. Do not claim it locates a detected person, vehicle, or fire within the plan. Do not project camera-space AI zones/boxes onto floor-plan coordinates without calibration.
-- Handle deleted/unavailable cameras and stale references gracefully. Retain backend referential integrity according to the documented deletion policy.
+- Reuse existing camera, health, worker, preview, and auth APIs. Add only small backward-compatible metadata/errors or aggregation needed by this feature, with documented contracts and tests.
+- Use existing API client/session handling and server-side permissions. Expired sessions must stop preview delivery; preview routes must remain authenticated. Do not expose source secrets in response metadata, URLs, logs, or errors.
+- Never run RTSP decode or AI inference inside an HTTP request just to serve a tile. Preserve the worker lease and ingestion process boundaries.
+- Do not introduce new schema/migrations unless a specific persistent requirement cannot be met otherwise. Viewing preferences do not automatically need a database table.
+- Investigate the old PermissionError/resource issue only if it reproduces or blocks this work. If preview publication needs a fix, preserve atomic publication, bounded retry behavior, and cleanup. Do not swallow arbitrary filesystem errors or declare historical HEVC warnings solved by a UI change.
+- No camera codec/FPS/IP/ONVIF configuration changes or physical unplug tests. Report a required physical/network action as a separate limitation.
 
-## 4. Module and branch boundaries
+## 6. File ownership and conflict avoidance
 
-Primary ownership: existing map feature directory, map-specific CSS, map API/schema/service code, focused tests, map migrations if required, and docs/MAP_FEATURE.md. Use actual existing names; do not create a parallel maps subsystem.
+Primary owned areas: monitoring feature code/styles/tests, preview lifecycle service, narrowly scoped backend preview/health changes, and docs/LIVE_MONITORING_FEATURE.md. Adapt paths to the existing project.
 
-- Preserve current framework and styling system. Do not migrate to React or introduce a GIS/canvas framework unnecessarily.
-- Keep existing Control Center visual language. Make the map toolbar/editor compact; prioritize map space over permanently open forms. Support desktop, expanded panel, tablet, and mobile without page overflow.
-- Use existing shared API/auth/error utilities and mount/update/dispose lifecycle. Cancel obsolete requests, release image object URLs, remove document/pointer/resize listeners, and avoid duplicate subscriptions after remount.
-- A delayed response from a previous plan must never replace the currently selected plan or its draft. A health refresh must not overwrite locally edited placements.
-- Do not refactor monitoring, incidents, devices, AI Hub, camera readers, rules, video analysis, or the application shell. Minimal additive shared changes are allowed only when essential for map integration; list their reason and contract impact in the handoff.
-- Avoid broad formatting, mass renames, new dependencies, root AGENTS.md rewrites, and lockfile changes unrelated to Map.
-- Keep map documentation mainly in docs/MAP_FEATURE.md to reduce conflicts. Update shared contract/status docs only with small necessary entries or links. Do not edit another feature's ownership assignment.
+- Do not put the full feature in frontend/app.js or frontend/features/control-center.js. Those should import/compose monitoring and forward shared actions.
+- Keep any necessary extraction behavior-preserving and limited to monitoring code. Do not refactor Map or incident internals, change placement cardinality, or modify migration 0005_map_revision.
+- main.py may register routes or delegate to existing services; avoid growing it with a new monolithic preview subsystem. Follow the actual backend structure.
+- Preserve shared selection and API contracts. No private cross-feature DOM access or direct imports of another feature's implementation.
+- List every shared file changed and explain why. Avoid unrelated formatting, dependency upgrades, root instruction rewrites, or global CSS changes.
+- Document mount/update/dispose or equivalent interface, selection callbacks, subscription ownership, error/freshness states, and how another page embeds the same viewer.
 
-## 5. Backend and storage requirements
+## 7. Verification
 
-- Reuse existing plan/placement endpoints and models; extend compatibly only where the acceptance criteria need it. Do not invent endpoint paths before inspecting the current contracts.
-- Enforce auth and edit roles on every mutation and protected image route. Return no RTSP credentials. Validate referenced cameras and plans server-side.
-- Validate names, metadata, finite normalized coordinates, duplicates, and revision values. Define meaningful HTTP errors for invalid input, missing references, conflicts, forbidden access, and unsupported/oversized images using existing conventions.
-- Enforce upload byte and decoded pixel limits. Validate actual decoded PNG/JPEG content; do not rely on extension/MIME alone. Use safe generated storage names, prevent path traversal, and reject SVG/HTML or arbitrary remote image fetching.
-- Account for image orientation consistently: normalized marker coordinates must refer to the same orientation users see. Reuse existing image processing support; do not add dependencies without a demonstrated need.
-- Use transactional placement updates and concurrency checks. Keep file replacement/deletion consistent with database state; clean up newly created files after failed writes and avoid removing a still-referenced image.
-- Preserve SQLite/PostgreSQL portability. Add a new uniquely identified Alembic revision only if schema changes are needed, based on the actual current head. Do not edit already committed migrations or resolve unrelated parallel migration heads by guessing. Document merge-time migration coordination.
-- Avoid N+1 requests for markers/health/incident counts. Reuse shared refresh data or bounded/batched requests. Do not fetch every historical incident just to count active ones.
-- Use local storage paths already supported by configuration. Do not introduce a new external storage service.
+Use isolated test database/media/handoff directories and synthetic fixtures for deterministic testing. Fixtures must be explicitly labeled. A mocked transport test is not a physical camera validation.
 
-## 6. Out of scope
+Automated tests should cover:
 
-No geocoding, Google Maps/OSM, GPS tracking, 3D plans, CAD/PDF import, multi-floor route planning, image calibration, AI model changes, camera discovery, RTSP changes, alarm hardware controls, historical heatmaps, new notification channels, or full rule editor work. Do not implement decorative fields of view unless real orientation/calibration data and a specific need already exist.
+1. Per-source deduplication/reference counting, in-flight limits, timeout/backoff, and cancellation.
+2. Unmount/logout/hidden-tab cleanup and safe resumption; no stale response updates after camera switch.
+3. Repeated frame ID, stale image with ONLINE source, worker unavailable, disabled source, and recovery to a genuinely fresh image.
+4. Auth expiry/forbidden behavior without infinite retry or credential leakage.
+5. Grid assignment and shared selection behavior, including deleted/missing cameras.
+6. Actual preview frame identity/timestamp and authorization if backend contracts change.
 
-## 7. Tests and browser acceptance
+Use existing test tooling. Avoid large new frameworks merely for small lifecycle tests.
 
-Use isolated databases/media directories. Do not point automated destructive tests at the user's real camera records or uploaded plans. Preserve pre-existing known failures separately from new regressions.
+Playwright/browser QA:
 
-Focused automated tests must verify meaningful behavior:
+- Login -> Control Center -> select a map marker -> matching live camera and context.
+- Select an incident -> matching camera without confusing evidence and live preview; preserve Map dirty edits.
+- Open the dedicated Live Monitoring page with the selected camera, switch single/grid, assign/remove/focus slots, and return to Control Center.
+- Verify four distinct synthetic/test camera slots, empty slots, unavailable source, stale image, request errors, and recovery. Real/simulated labels must match actual sources.
+- Verify Pause affects display only, and expand/fullscreen restores layout and selection.
+- Rapidly switch cameras/pages and repeat navigation at least ten times. Inspect subscriptions, network request counts, and console errors for accumulation; do not claim absence of a memory leak solely from one screenshot.
+- Hide/resume the page using browser lifecycle tooling where available; otherwise document what was actually tested.
+- Logout during active preview: abort work, clear displayed private images, and reject further authenticated access.
+- Check 1440x900, 768px, and 375px layouts, keyboard focus, accessible button labels, and no horizontal page overflow.
+- Run a bounded stability observation (around five minutes) with synthetic sources, capturing refresh/freshness behavior and resource/request counts at start/end. Keep progress updates during the observation rather than blocking silently.
 
-1. Normalized coordinates and transform/inverse-transform round trips with portrait/landscape images, letterboxing, pan, zoom, and resize.
-2. Out-of-bounds/margin input, NaN/infinite values, duplicate placement, missing camera/plan references, and authorization.
-3. Persistence, Cancel behavior, atomic multi-placement save, stale revision conflict, and error recovery.
-4. Image upload validation, replacement keep/clear policies, rollback after failure, and plan deletion without deleting cameras/incidents.
-5. External selection without a placement, selection across plans, stale async responses, and preservation of dirty edits.
-6. Listener/subscription/request cleanup through repeated mount/dispose where test tooling supports it.
+Optional physical camera validation:
 
-Run browser QA with the configured Playwright tooling or a documented equivalent:
+- If the previously configured Hikvision source is reachable and credentials already exist locally, reuse it for a non-disruptive preview smoke/stability check. Do not request credentials in chat or change source configuration.
+- Do not open an extra competing worker or stop a user-owned process; inspect existing processes/lease first. Start only necessary services and record ownership. Stop your temporary services after QA; leave pre-existing services untouched.
+- Report REAL results separately, including duration, observed image updates/freshness, and errors. No camera available is not a blocker for completing the feature, but must remain unverified.
+- Physical reconnect, multi-camera hardware throughput, and real AI inference remain separate validations.
 
-- Create two plans and several test cameras in an isolated environment; use generated/local non-sensitive plan images.
-- Upload, place, move, save, reload, and verify each marker remains correctly positioned.
-- Pan/zoom/fit, expand/restore, and resize without coordinate drift; test placing near image edges and rejecting margin clicks.
-- Use keyboard/non-drag controls and a touch-sized viewport; inspect 1440x900, 768px, and 375px layouts for overflow, legibility, and accessible controls.
-- Cancel edits; switch plans with unsaved changes; simulate failed save and stale concurrent save in a second tab.
-- Replace the image with a different aspect ratio using both keep and clear choices; verify the warning, saved result, and recovery from a failed replacement.
-- Select marker -> existing camera/context selection; select event -> appropriate marker/plan without losing dirty edits.
-- Remove placement and delete a plan; confirm cameras/incidents remain and UI selection stays valid.
-- Verify read-only/edit role behavior and authenticated images.
-- Repeatedly navigate away/back and log out. Check for console errors, duplicate requests, and retained resources. Restore test service/environment state after QA.
+Run relevant existing backend/frontend checks, syntax/compile checks, and git diff --check. Run a practical regression suite once after focused checks pass. Preserve pre-existing failure records. Do not claim PostgreSQL/Compose tested unless actually executed.
 
-Real camera streaming and real model weights are not prerequisites for validating the Map feature. If available, do a non-disruptive optional smoke check with existing local credentials, but distinguish it clearly from fixture-based tests. Never mark camera/AI readiness as newly validated by a map test.
+## 8. Acceptance and delivery
 
-Run relevant existing backend/frontend checks and git diff --check. Test SQLite migration fresh/upgrade behavior if schema changes. Test PostgreSQL/Compose if available; otherwise state it remains unverified. Once focused checks pass, run the existing practical regression suite once to detect integration breakage, without repeatedly rerunning unchanged tests.
+Done means:
 
-## 8. Completion and handoff
+- Both existing UI surfaces use the shared monitoring module and remain visually integrated.
+- Single and 2x2 views work with shared camera/event/map selection.
+- Preview lifecycle is bounded, cancellable, and cleaned up on navigation/logout.
+- Displayed freshness and source/worker status are honest; cached images and simulated sources cannot masquerade as live real footage.
+- Existing Map editing, incident actions, rules, settings, AI Hub, and video analysis remain accessible and intact.
+- Required tests and browser QA are completed or specific environment blockers are documented without inflated claims.
 
-The feature is complete when a user can manage plans, place/reposition/remove cameras, save/cancel safely, navigate a responsive zoomable plan, and use synchronized camera/event selection without losing data or creating cross-module coupling.
+Finish docs/LIVE_MONITORING_FEATURE.md with implemented/deferred scope, module interfaces, refresh/freshness semantics, API changes, test evidence, limitations, and merge notes. Make only minimal links/entries in shared docs as needed.
 
-Finish docs/MAP_FEATURE.md with:
+Final report must give branch/base/worktree and whether it depends on an unmerged Map commit; working user flows; main owned/shared files; actual tests and real vs synthetic observations; local run commands; known limitations; and a proposed commit message:
 
-- Implemented vs deferred scope and concrete user instructions.
-- Actual owned files and minimal shared files touched.
-- API additions/changes, revision/conflict semantics, placement cardinality, coordinate convention, and image replacement/deletion policy.
-- New migration and upgrade instructions if applicable.
-- Test/QA results, current limitations, and any pre-existing failures.
-- Integration notes for other feature branches, including exact public events/actions used and migration coordination needs.
+`feat(monitoring): integrate shared live views across Visor`
 
-Final response should include branch/base/worktree, concise delivered behavior, test outcomes, limitations, local run/migration commands, and a suggested commit message:
-
-`feat(map): complete floor plan editing and camera placement workflows`
-
-Do not commit or push. Do not claim the entire Vigilon MVP is finished. Leave the changes ready for user review and commit.
+Do not commit or push. Leave reviewable changes ready for the user.

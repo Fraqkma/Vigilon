@@ -9,7 +9,7 @@ The coordinator composes six visible panels: floor plans/placements, monitoring,
 ## Panel module interfaces
 
 - `frontend/features/maps.js`: `VisorMaps.fittedRect`, `imageToScreen`, `screenToImage`, and `zoomAt` share the fitted-image/view transform; inverse mapping rejects letterbox margins. The coordinate origin is top-left, x right, y down. `placeCamera(placements,cameraId,point)` and `removeCamera(placements,cameraId)` return new placement arrays.
-- `frontend/features/monitoring.js`: `VisorMonitoring.renderPreview(camera,selectedCameraId,escapeHTML,formatTime)` returns one escaped preview card using only the existing preview endpoint.
+- `frontend/features/monitoring.js`: `VisorMonitoring.createPreviewManager()` owns authenticated preview scheduling, deduplication, timeouts, bounded retry, frame freshness, and object URL cleanup. `mountViewer()` embeds the same four-slot viewer in Control Center and Live Monitoring; `mountLivePage()` adds camera filtering and assignment controls. `initialGridAssignments()`, `focusGridSelection()`, and `assignGridCamera()` keep unique deterministic slot selection. The module also exports its preview manager helpers for Node tests.
 - `frontend/features/incidents.js`: `VisorIncidents.renderEvent(incident,camera,isSelected,escapeHTML,formatTime)` and `renderDetail(incident,camera,isPending,escapeHTML,formatTime)` return queue/detail markup. The coordinator binds selection and authorized actions.
 - `frontend/features/devices.js`: `VisorDevices.renderLocation(camera,plan,isAdmin,contextOpen,expanded,escapeHTML,contextForm)` and `renderDevice(camera,expanded,escapeHTML,formatTime)` return panel markup; `renderContextForm(camera,escapeHTML)` renders the optional metadata form.
 
@@ -20,9 +20,9 @@ Each renderer receives public data and formatting callbacks. These files do not 
 - Control Center depends on the shell authenticated API transport and current session role. The transport honors `AbortSignal`, returns API errors to the caller, and redirects an expired authenticated session to login.
 - Incident action feedback is kept in coordinator state so a full refresh cannot erase a rejection message.
 - Floor plan reads and mutations use `/api/plans`; camera context edits use `/api/cameras/{id}/context`.
-- Monitoring uses the existing authenticated worker preview route. It never creates upstream camera sessions.
+- Both monitoring surfaces and camera details use the existing authenticated worker preview route through one shared manager. The manager shares requests for a camera, allows at most four concurrent preview requests across mounted viewers, times out and aborts work, stops on 401/403/404, backs off transient failures, suspends while the document is hidden, and releases object URLs on unsubscribe/session end. Frame ID prevents unchanged bytes from resetting freshness. Display pause does not pause ingestion or configured AI processing.
 - Event queue, evidence and actions use `/api/incidents`, `/api/incidents/{id}/evidence`, and `/api/incidents/{id}/action`.
-- Polling runs every seven seconds while visible. Navigation/logout calls `dispose`; stale refresh responses are ignored by a generation counter, and plan-image ResizeObservers are disconnected on redraw/dispose. At most four grid previews render.
+- Polling runs every seven seconds while visible. Navigation/logout calls `dispose`; stale refresh responses are ignored by a generation counter, and plan-image ResizeObservers are disconnected on redraw/dispose. At most four preview tiles render. The viewer attaches requests only to visible tiles; frame age and browser-displayed new-frame rate are separate from source target/inference FPS.
 - The location/device column can be hidden and restored; per-panel expand/restore remains available.
 - No fixture provider is enabled in production UI. Tests seed isolated database fixtures; API failures render an error and explicit Retry action, never synthetic fallback content.
 

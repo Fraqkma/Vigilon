@@ -495,7 +495,16 @@ def preview(camera_id:int,user=Depends(current_user)):
     if not filename.startswith(f"camera-{camera_id}-") or not filename.endswith(".jpg"): raise HTTPException(503,"Preview metadata invalid")
     p=HANDOFF_DIR/filename
     if not p.is_file(): raise HTTPException(503,"Preview offline")
-    response=FileResponse(p,media_type="image/jpeg",headers={"Cache-Control":"no-store","X-Captured-At":meta["captured_at"],"X-Frame-Width":str(meta["width"]),"X-Frame-Height":str(meta["height"]),"X-Simulation":"SIMULATED" if meta["simulated"] else "REAL SOURCE"})
+    try:
+        captured=datetime.fromisoformat(str(meta["captured_at"]).replace("Z","+00:00"))
+        if captured.tzinfo is None: captured=captured.replace(tzinfo=timezone.utc)
+        sequence=int(meta["sequence"])
+        frame_id=f"{sequence}:{captured.timestamp():.6f}"
+        age_ms=max(0,int((now()-captured.astimezone(timezone.utc)).total_seconds()*1000))
+        width=int(meta["width"]);height=int(meta["height"]);simulated=bool(meta["simulated"])
+        if width<1 or height<1: raise ValueError("invalid dimensions")
+    except (KeyError,TypeError,ValueError,OverflowError): raise HTTPException(503,"Preview metadata invalid")
+    response=FileResponse(p,media_type="image/jpeg",headers={"Cache-Control":"no-store","X-Captured-At":captured.astimezone(timezone.utc).isoformat(),"X-Frame-ID":frame_id,"X-Frame-Age-Ms":str(age_ms),"X-Frame-Width":str(width),"X-Frame-Height":str(height),"X-Simulation":"SIMULATED" if simulated else "REAL SOURCE"})
     return response
 @app.get("/api/cameras/{camera_id}/rules")
 def rules(camera_id:int,user=Depends(current_user)):
