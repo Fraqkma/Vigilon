@@ -1,0 +1,33 @@
+/* Event Logs page (.lg-). Loaded by features/logs.js; uses the shared tokens from style.css.
+   Every selector is prefixed so other pages are unaffected. */
+.lg-filters { display: grid; gap: 12px; margin-bottom: 14px; }
+.lg-ranges { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.lg-ranges .field { min-width: 190px; margin: 0; }
+.lg-kinds { display: flex; flex-wrap: wrap; gap: 18px; border: 0; padding: 0; margin: 0; }
+.lg-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 12px; }
+.lg-fields .field { margin: 0; }
+.lg-search { grid-column: span 2; }
+.lg-result-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 6px 0 10px; color: var(--muted); font-size: 14px; flex-wrap: wrap; }
+/* position:relative keeps the absolutely positioned .sr-only header inside the scroll box (no page overflow on phones) */
+.lg-table-wrap { position: relative; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.lg-table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 14px; }
+.lg-table th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; padding: 11px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.lg-table td { padding: 11px 12px; border-bottom: 1px solid #252f37; vertical-align: top; }
+.lg-table tr:last-child td { border-bottom: 0; }
+.lg-table time { white-space: nowrap; }
+.lg-kind { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
+.lg-kind-incident { background: #45272b; color: #ffd6d8; }
+.lg-kind-action { background: #173634; color: #bff1ec; }
+.lg-kind-health { background: #2a333a; color: #d3dde3; }
+.lg-details { color: var(--muted); max-width: 280px; overflow-wrap: anywhere; }
+.lg-detail { margin-top: 16px; }
+.lg-evidence { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); background: #0b0f12; }
+.lg-history { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+
+@media (max-width: 1100px) {
+  .lg-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .lg-fields { grid-template-columns: 1fr; }
+  .lg-search { grid-column: auto; }
+}
