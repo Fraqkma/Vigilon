@@ -32,6 +32,16 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) and sign in as the admin use
 
 Choose `normal`, `obstruction`, `person_down`, or `smoke_fire` in Live Monitoring when adding a synthetic source. A simulated incident appears after the configured minimum duration. Its synthetic snapshot, `SIMULATED` badge, acknowledgement, resolution, and actor history are stored locally. Operator actions are also available from Incidents.
 
+## Control Center
+
+After signing in, Control Center is the operational landing view. It combines a named floor plan and normalized camera markers, worker-published live preview (single or up to four tiles), configured location context, optional device details, a bounded incident queue, and incident actions/evidence. Admins create plans, upload PNG/JPEG floor plans (8 MiB / 20 megapixel maximum), place cameras, and edit optional contact/device context. Existing camera, incident, rule, AI Modules, Video Analysis, Overview and Settings destinations remain available in the sidebar. Camera markers represent configured camera positions; they do not identify where an event occurred.
+
+New SQLite/PostgreSQL migration: `0005_map_revision` (after `0004_control_center`). Apply it with the existing `python -m app.commands migrate` step before starting API/worker after updating. Map editing, placement revision conflicts, and image replacement choices are documented in [Map feature](docs/MAP_FEATURE.md). Contract examples, permissions and error behavior are in [Control Center contracts](docs/CONTROL_CENTER_CONTRACTS.md); feature lifecycle and ownership boundaries are in [module guide](docs/FEATURE_MODULES.md) and [ownership packages](docs/FEATURE_OWNERSHIP.md).
+
+## Live Monitoring
+
+The Live Monitoring page and Control Center preview use the same authenticated worker-frame viewer and preview scheduler. Live Monitoring supports camera search/health filtering, single view, and up to four assigned camera tiles. Camera selection is shared with Control Center; browser preview requests are bounded, repeated frame identities do not reset freshness, and display pause does not stop source ingestion. See the [Live Monitoring feature and verification record](docs/LIVE_MONITORING_FEATURE.md) and [feature module lifecycle](docs/FEATURE_MODULES.md). The displayed new-frame rate describes browser refresh observations, not source processing or inference FPS.
+
 ## Docker Desktop / Linux Compose
 
 Install Docker Desktop with the Compose plugin on Windows, or Docker Engine and the Compose plugin on Linux. Generate `.env` with `scripts/setup.ps1` on Windows or `bash scripts/setup.sh` on Linux; setup generates local secrets without requiring Python packages and leaves already configured values unchanged. Then:
@@ -90,7 +100,7 @@ node --check frontend/app.js
 
 ## Model-ready AI Hub
 
-The AI Hub accepts only reviewed Ultralytics detection checkpoints through the built-in `people_vehicle` and `fire_smoke` adapters. Place the owner-approved file at `models/people_vehicle/weights/best.pt` or `models/fire_smoke/weights/best.pt`, and update `classes.json`, scenarios, model card, evaluation, and optional checksum to match the checkpoint. The directories are mounted read-only in Compose and are not copied into the image, so adding/replacing weights does not require an image rebuild. The optional AI runtime is intentionally separate from the small CPU demo install. Install the matching CPU or CUDA PyTorch build for the target machine first, then `python -m pip install -r requirements-ai.lock`.
+The AI Hub accepts only reviewed Ultralytics detection checkpoints through the built-in `people_vehicle` and `fire_smoke` adapters. Place the owner-approved file at `models/people_vehicle/weights/best.pt` or `models/fire_smoke/weights/best.pt`, and update `classes.json`, scenarios, model card, evaluation, and optional checksum to match the checkpoint. The directories are mounted read-only in Compose and are not copied into the image, so adding/replacing weights does not require an image rebuild. The optional AI runtime is intentionally separate from the small CPU demo install and pins `ultralytics==8.4.0` for YOLO26 compatibility. Install the matching CPU or CUDA PyTorch and torchvision builds for the target machine first, then `python -m pip install -r requirements-ai.lock`; verify with `python -m pip check`.
 
 Windows activation/validation commands (run from repository root):
 

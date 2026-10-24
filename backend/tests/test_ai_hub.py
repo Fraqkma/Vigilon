@@ -96,7 +96,7 @@ def test_runtime_adapter_cpu_warmup_and_explicit_cuda_unavailable(tmp_path,monke
         task="detect"
         def __init__(self,path):self.names=names;self.calls=[]
         def predict(self,*args,**kwargs):self.calls.append(kwargs);return [object()]
-    monkeypatch.setitem(sys.modules,"ultralytics",types.SimpleNamespace(__version__="8.3.0",YOLO=FakeYOLO))
+    monkeypatch.setitem(sys.modules,"ultralytics",types.SimpleNamespace(__version__="8.4.0",YOLO=FakeYOLO))
     monkeypatch.setattr(UltralyticsDetectionAdapter,"_cuda_available",staticmethod(lambda:False))
     package=inspect_package("people_vehicle")
     loaded=UltralyticsDetectionAdapter(package).load()
@@ -114,10 +114,76 @@ def test_runtime_rejects_non_detection_task_and_wrong_checkpoint_names(tmp_path,
     class FakeYOLO:
         task="segment";names={}
         def __init__(self,path):self.task=type(self).task;self.names=type(self).names
-    monkeypatch.setitem(sys.modules,"ultralytics",types.SimpleNamespace(__version__="8.3.0",YOLO=FakeYOLO))
+    monkeypatch.setitem(sys.modules,"ultralytics",types.SimpleNamespace(__version__="8.4.0",YOLO=FakeYOLO))
     package=inspect_package("people_vehicle")
     assert UltralyticsDetectionAdapter(package).load().status=="UNSUPPORTED_MODEL"
     FakeYOLO.task="detect";FakeYOLO.names={0:"other"}
     package=inspect_package("people_vehicle")
     loaded=UltralyticsDetectionAdapter(package).load()
     assert loaded.status=="INVALID_CONFIG" and "class map" in loaded.error
+
+
+def test_predict_receives_original_bgr_without_channel_swap(tmp_path,monkeypatch):
+    folder=package_copy(tmp_path,monkeypatch)
+    (folder/"manifest.yaml").write_text((folder/"manifest.yaml").read_text().replace("tracker: {path: tracker.yaml}","tracker: null"),encoding="utf-8")
+    (folder/"weights"/"best.pt").write_bytes(b"temporary mocked checkpoint")
+    import numpy as np
+
+    class Result:
+        boxes=None
+    class FakeYOLO:
+        task="detect"
+        def __init__(self,path): self.names={int(k):v for k,v in json.loads((folder/"classes.json").read_text()).items()};self.images=[]
+        def predict(self,image,**kwargs): self.images.append(image.copy());return [Result()]
+    monkeypatch.setitem(sys.modules,"ultralytics",types.SimpleNamespace(__version__="8.4.0",YOLO=FakeYOLO))
+    package=UltralyticsDetectionAdapter(inspect_package("people_vehicle")).load()
+    assert package.status=="READY"
+    image=np.zeros((4,5,3),dtype=np.uint8)
+    image[:]=(11,73,241)  # distinct B, G, R values expose red/blue swapping
+    UltralyticsDetectionAdapter(package).detect(image,"session",1)
+    np.testing.assert_array_equal(package.runtime.images[-1],image)
+
+
+def test_bytetrack_84_update_maps_returned_detection_index(tmp_path,monkeypatch):
+    folder=package_copy(tmp_path,monkeypatch)
+    (folder/"weights"/"best.pt").write_bytes(b"temporary mocked checkpoint")
+    import numpy as np
+
+    class ArrayView:
+        def __init__(self,value): self.value=np.asarray(value)
+        def cpu(self): return self
+        def numpy(self): return self.value
+        def int(self): return self
+        def tolist(self): return self.value.tolist()
+    class Boxes:
+        xyxy=ArrayView([[1,2,30,40]])
+        cls=ArrayView([0])
+        conf=ArrayView([0.91])
+        def __len__(self): return 1
+        def cpu(self): return ArrayView([[1,2,30,40,0.91,0]])
+    image=np.zeros((50,60,3),dtype=np.uint8);image[:]=(7,89,233)
+    class Result:
+        boxes=Boxes()
+        orig_img=image
+    class FakeYOLO:
+        task="detect"
+        def __init__(self,path): self.names={int(k):v for k,v in json.loads((folder/"classes.json").read_text()).items()}
+        def predict(self,*args,**kwargs): return [Result()]
+    instances=[]
+    class FakeBYTETracker:
+        def __init__(self,args,frame_rate): self.args=args;self.frame_rate=frame_rate;instances.append(self)
+        def update(self,results,img):
+            self.results=results;self.image=img
+            return np.asarray([[1,2,30,40,73,0.91,0,0]],dtype=float)
+    trackers=types.ModuleType("ultralytics.trackers")
+    byte_tracker=types.ModuleType("ultralytics.trackers.byte_tracker")
+    byte_tracker.BYTETracker=FakeBYTETracker
+    monkeypatch.setitem(sys.modules,"ultralytics",types.SimpleNamespace(__version__="8.4.0",YOLO=FakeYOLO))
+    monkeypatch.setitem(sys.modules,"ultralytics.trackers",trackers)
+    monkeypatch.setitem(sys.modules,"ultralytics.trackers.byte_tracker",byte_tracker)
+    package=UltralyticsDetectionAdapter(inspect_package("people_vehicle")).load()
+    rows=UltralyticsDetectionAdapter(package).detect(image,"session",1)
+    assert rows[0]["track_id"]==73
+    assert instances[0].frame_rate==30
+    assert instances[0].results.shape==(1,6)
+    np.testing.assert_array_equal(instances[0].image,image)

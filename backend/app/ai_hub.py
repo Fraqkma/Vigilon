@@ -231,16 +231,17 @@ class UltralyticsDetectionAdapter:
         import time
         p = self.package
         if p.status not in ("READY", "RUNNING") or p.runtime is None: return []
-        import cv2
         import numpy as np
         bgr = np.asarray(image)
-        if bgr.ndim == 3 and bgr.shape[2] == 3: rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        else: raise ValueError("Expected a three-channel BGR frame")
+        if bgr.ndim != 3 or bgr.shape[2] != 3:
+            raise ValueError("Expected a three-channel BGR frame")
         conf = p.inference["conf"]; iou = p.inference["iou"]
         selected = p.inference.get("classes")
         started = time.perf_counter()
         with p.lock:
-            result = p.runtime.predict(rgb, imgsz=p.inference["imgsz"], conf=conf, iou=iou, classes=selected, device="cpu" if p.inference.get("device") == "auto" else p.inference.get("device", "cpu"), verbose=False)[0]
+            # Ultralytics 8.4.0 expects OpenCV BGR NumPy images and converts
+            # them to RGB internally during predictor preprocessing.
+            result = p.runtime.predict(bgr, imgsz=p.inference["imgsz"], conf=conf, iou=iou, classes=selected, device="cpu" if p.inference.get("device") == "auto" else p.inference.get("device", "cpu"), verbose=False)[0]
             boxes = result.boxes
             rows = []
             if boxes is not None:

@@ -1,3 +1,6 @@
 # Install a platform-appropriate PyTorch wheel first (CPU or CUDA), then:
-ultralytics==8.3.0
+ultralytics==8.4.0
 packaging==26.3
+opencv-python==4.11.0.86
+# ByteTrack (people_vehicle tracker.yaml) imports lap; without it Ultralytics tries a runtime pip AutoUpdate and fails offline
+lap==0.5.13

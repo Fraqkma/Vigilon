@@ -1,1 +1,1 @@
-{"status":"NOT_PROVIDED","dataset":null,"dataset_rights":null,"split_method":null,"training_run":null,"metrics":null,"hardware":null,"runtime_versions":null}
+{"status":"NOT_PROVIDED","dataset":null,"dataset_rights":null,"split_method":null,"training_run":"none - official Ultralytics COCO-pretrained yolo26s.pt used as-is (baseline)","metrics":null,"hardware":null,"runtime_versions":{"ultralytics":"8.4.0"}}

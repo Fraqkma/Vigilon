@@ -7,6 +7,7 @@ Compatibility is limited to interfaces implemented by this repository and still 
 | Synthetic generated frames | Pillow source adapter | Yes; changing frames, preview, simulated incident and evidence |
 | Local video file | OpenCV `VideoCapture` with FFmpeg backend; path contained within configured media directory | Yes; generated MJPEG AVI fixture, EOF, and traversal rejection |
 | RTSP / RTSPS | OpenCV FFmpeg backend; explicit scheme, resolved-address CIDR allowlist, service-port rejection, open/read timeout | Adapter implemented; no RTSP publisher or physical camera test |
+| Local webcam (USB/built-in) | OpenCV device index `0`–`9` on the worker computer (DirectShow on Windows); no paths or URLs accepted | Validation and API tested; no physical webcam tested in CI |
 | ONVIF | Not implemented; no discovery or credential probing | No |
 | Vendor cloud-only stream | Not implemented | No |
 

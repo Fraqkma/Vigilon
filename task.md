@@ -1,123 +1,166 @@
-# Vigilon / Visor: Real Camera Ingestion Validation
+# Vigilon / Visor — Live Monitoring Feature
 
-## Objective and execution policy
+## Mission
 
-Inspect the existing repository first, then connect the existing camera through the existing API, worker, frame buffer and Visor. Complete a bounded real-camera validation and fix concrete integration defects only after the assessment is complete. Do not rebuild the architecture. This task authorizes local implementation fixes after assessment; it does not authorize changing camera/router configuration, installing global software, committing, pushing or deploying.
+Complete Live Monitoring on a dedicated feature branch and integrate it with BOTH the existing Control Center camera panel and the existing Live Monitoring page. Build on the committed foundation and Map feature. This is an implementation task: inspect, implement missing behavior, test, and document. Do not deliver a disconnected replacement page or only a mockup.
 
-Before editing code, write a concise assessment and proposed execution sequence to docs/CAMERA_INTEGRATION_ASSESSMENT.md and summarize it to the user. Continue with compatible, local, reversible fixes without requesting another routine approval. If a substantial architecture/API change appears necessary, describe the evidence and stop that change for a decision. Preserve unrelated work.
+The two UI surfaces must use the same monitoring implementation and preview lifecycle. Preserve the user's current visual design, map editor, incident workflows, authentication, and navigation.
 
-## Current evidence supplied by the user (2026-10-22)
+## 1. Instructions, tooling, and branch safety
 
-- Camera: Hikvision DS-2CD1143G2-LIU, powered by TP-Link ES206GP PoE switch port 4.
-- Password recovered through Hikvision software recovery; not a confirmed hardware reset.
-- Camera activated; browser login and real live view work.
-- DHCP enabled; last camera IP 192.168.1.102, mask 255.255.255.0, gateway 192.168.1.1.
-- Last PC IP 192.168.1.180 on Ethernet, Windows 11. The machine executing this task may be different: verify reachability from the actual worker host.
-- HTTP port 80; RTSP port 554.
-- User verified VLC playback of rtsp://192.168.1.102:554/Streaming/Channels/101 with admin credentials.
-- Channel 102 is a candidate substream, NOT verified: rtsp://192.168.1.102:554/Streaming/Channels/102.
-- ONVIF is disabled/not tested; not a prerequisite for this RTSP milestone.
-- DHCP reservation, encoding details, time synchronization and long-run stability are not verified.
-- No evidence yet of real frames reaching the Vigilon backend or Visor.
-- The people/vehicle team reported improved fine-tuning metrics, but checkpoint availability, compatibility and runtime inference inside this repository remain unverified.
+- Read applicable AGENTS.md, README, feature ownership/contracts, MAP_FEATURE.md, architecture/status documents, and relevant source first. Respect existing Codex settings, ECC workflows, and configured MCP tools. Discover actual capabilities; use relevant installed skills such as archify where appropriate, Context7 when version-specific documentation is needed, and Playwright for browser QA. Do not reinstall or change global tool settings. Report unavailable tools and use a reasonable fallback.
+- Verify repository root, git status, branch, recent commits, and worktrees. The user reports Map is committed on feat/map; merging into the main integration branch has NOT been confirmed.
+- Create/use `feat/live-monitoring` from a verified commit containing both the Control Center foundation and completed Map feature. If the current checkout is the committed feat/map tip, branching directly from it is allowed; document that this is a stacked branch depending on Map. Do not assume main contains Map, merge branches automatically, or include unrelated feature commits.
+- If the desired branch already exists, inspect it before using it. If another task/worktree owns it or dirty unrelated work would be mixed in, use an isolated worktree with a descriptive unused branch name. Preserve all user changes, including task.md. Do not reset, discard, stash, or move unrelated changes automatically.
+- Record branch, actual base SHA, worktree, and Map dependency. Do not commit, push, open a PR, merge, rebase, or delete branches.
+- Use the project's existing frontend stack and backend conventions. No framework migration, new RTSP proxy stack, Redis, or microservices merely for this task.
+- Do not print credentials, change encryption/signing keys, or commit .env, databases, captured frames, videos, or model weights. Existing local credentials may be used for authorized local testing without exposing their values.
 
-Treat these as user-reported external checks, not checks you ran. Never claim VLC success establishes backend success. Do not use the previous camera IP 172.16.26.33.
+## 2. Baseline and assessment
 
-## Phase 1: Read-only repository assessment
+Reported baseline, to verify against code:
 
-1. Confirm repo root, branch and git status. Read applicable AGENTS.md, README, implementation-status documents, architecture, camera compatibility, security and AI Hub docs. Respect existing Codex/ECC settings and available tools; do not modify global settings, hooks or MCP configuration. Do not assume a named tool is available.
-2. Inspect actual code and pinned dependencies, not only documentation. Locate:
-   - Camera/source create/edit/probe APIs and credential encryption/redaction.
-   - RTSP adapter, decoder backend, transport options, connection/read timeouts and process/thread cleanup.
-   - Worker ownership/lease, per-source lifecycle, bounded buffers, timestamps and stale-frame handling.
-   - Worker-to-API preview publication, shared storage and authenticated preview access.
-   - Visor camera management and Live Monitoring, including loading/offline/stale states.
-   - Model registry/validation/reload and scenario-to-incident integration.
-   - Existing tests and documented Windows startup commands.
-3. Identify which pieces already exist, which have mock-only evidence, and concrete gaps. Reference actual repository paths. Keep FastAPI, the existing database setup and frontend stack unless a real blocker proves a change necessary.
-4. Establish acceptance checks before making fixes. Do not add new ONVIF, streaming servers, dashboards, adapters or database tables simply to run this task.
+- FastAPI and SQLAlchemy/Alembic; API and ingestion worker run separately.
+- RTSP/RTSPS, FILE, and synthetic sources; per-source bounded frame buffers and reconnect logic.
+- Worker publishes JPEG/manifest data for authenticated preview; browsers do not receive camera credentials.
+- Modular Control Center with shared plan/camera/incident selection; existing Live Monitoring and camera/rule management pages.
+- Map supports plan management, pan/zoom, placement editing, save/cancel, revision conflicts, and cross-panel selection. Migration 0005_map_revision reportedly follows 0004_control_center.
+- AI packages may still lack weights. Do not assume any real inference works.
+- Earlier physical camera test: one Hikvision main stream decoded successfully and displayed a 1280x720 preview, around 1.98 decoded/queued FPS. There were PermissionError publishing errors, HEVC warnings, and an older browser tab resource issue. These are historical observations, not current validation or proof of their causes.
 
-## Phase 2: Local setup and credentials
+Start docs/LIVE_MONITORING_FEATURE.md with a short gap assessment:
 
-- Use the current virtual environment and dependency locks. Inspect running services before starting anything; avoid duplicate ingestion workers and do not kill unrelated processes.
-- Prefer the currently functioning local database mode. Do not make Docker/PostgreSQL a prerequisite for a local SQLite camera test. Report environments not exercised.
-- Use the existing authenticated camera form to enter the password. The user must enter secrets locally; never request passwords in chat, command arguments, task files or screenshots. If unattended tooling needs a credential, use an existing secure mechanism or an ignored local secret file entered by the user; do not print its content.
-- Never log complete credential-bearing URLs. Redact credentials in errors, decoder stderr, reports and examples. Preserve encryption and existing password keep/clear semantics.
-- Preserve existing camera records; reuse or create one clearly named test source without duplicating it on reruns. Inspect existing URL/credential fields rather than assuming their schema.
-- If the host has no LAN access or credentials are missing, complete the assessment and useful local checks, then give the exact minimal user action required. Do not substitute a synthetic source and mark the physical camera passed.
+1. Existing UI entry points, preview component, timers, subscriptions, API client, and cleanup.
+2. Actual preview transport, headers/manifests, freshness metadata, camera/worker health semantics, auth, and relevant endpoints.
+3. Existing frame identity and possible stale-frame/race behavior.
+4. Minimal module extraction and shared-file changes needed.
+5. Current branch/base and existing tests.
 
-## Phase 3: Real RTSP ingestion, without AI
+Then proceed with implementation; do not stop at the assessment.
 
-Start with the user-verified channel 101 and the camera's CURRENT configuration. Do not change encoding just because H.264/1080p/15 FPS was previously suggested.
+## 3. User-facing behavior
 
-1. Verify the specific camera host/port from the worker host using bounded checks; do not scan the LAN. Distinguish unreachable host, refused port, authentication failure and decoding failure where supported. If DHCP changed the address, ask the user for the current address instead of guessing.
-2. Use the existing connection-probe workflow and decoder to obtain real decoded frames. Observe codec, dimensions and stream metadata if exposed. Do not confuse configured stream FPS, decoded FPS and inference FPS.
-3. Add/enable the source through the existing application flow with AI disabled. Verify worker health, frame delivery and preview updates through the API and Visor.
-4. Run a bounded 10-minute ingestion test (configurable shorter diagnostic runs are allowed, but report actual duration). Monitor at short intervals without blocking communication. Record time to first frame, decoded/published frame counts where available, measured FPS, read failures, reconnect attempts, frame age, buffer occupancy/capacity and process resource usage at start/end. Do not invent measurements not exposed by the system.
-5. Verify freshness using sequence numbers/timestamps and a physical scene change if possible. A static scene can produce identical image hashes, so hash equality alone is not a valid frozen-stream detector. Distinguish local receipt age from true camera-to-screen latency; do not claim end-to-end latency without synchronized capture timestamps.
-6. Verify Visor shows current frames and honest online/stale/offline states. Prevent an old image being presented as current live footage after ingestion stops.
-7. Check bounded buffers remain bounded and old frames do not accumulate into growing live latency. Verify source shutdown releases resources.
-8. Optionally test channel 102 independently after 101 works. Record its actual resolution/codec and results. A successful low-resolution preview does not establish that small objects will be detectable; choose the AI stream later using real examples. Failure of unverified 102 must not invalidate working 101.
+### A. One monitoring module, two integrated surfaces
 
-## Phase 4: Controlled reconnect test
+- Extend the actual existing monitoring feature directory, or create a narrowly scoped one if missing. Both Control Center and Live Monitoring page must compose its public interfaces.
+- Control Center: compact selected-camera view plus a 2x2 grid option, using existing panel chrome and expand/restore behavior.
+- Dedicated Live Monitoring page: single-camera and 2x2 grid views, camera search/filter, slot selection, and a clear return/open-in-Control-Center action. Four simultaneous visible previews are sufficient for this milestone; do not advertise untested larger grids.
+- Preserve existing route URLs/deep links where possible. Selecting a camera then opening the other surface must retain the intended selection through the existing coordinator/router.
+- Retain existing rule/settings/AI module actions via real links or existing controls. Do not rebuild those features inside monitoring.
+- Use existing theme tokens, spacing, icons, and typography. Keep video dominant, actions compact, labels readable, and responsive layouts usable at 375/768/1440 pixels. No page-level horizontal overflow.
 
-- Use the existing source disable/enable operation to test application lifecycle separately from network loss.
-- For a genuine disconnect, ask the user to unplug/reconnect only the test camera's Ethernet cable. Explain that PoE removal also reboots the camera and report this as a power/network interruption. Do not disable the PC NIC, alter firewall/router settings or interrupt other devices.
-- Coordinate the physical action while observing the worker. Verify stale/offline indication, bounded reconnect backoff and automatic return to fresh frames without manually restarting the application.
-- Record recovery time from the camera becoming reachable again where possible; separate camera boot time from worker reconnect delay.
-- Verify there is no duplicate source reader/worker and no resource accumulation from repeated reconnects. Reset or invalidate downstream tracking state after a discontinuity using the existing contract.
-- If no physical action is available, explicitly mark REAL_DISCONNECT_RECOVERY as NOT_TESTED. A simulated failure or manual disable/enable is useful but is not equivalent evidence.
+### B. Camera selection and grids
 
-## Phase 5: Minimal fixes, only where evidence warrants them
+- List existing cameras with name and real health state. Search by existing name/location fields and filter by health where supported. Do not expose RTSP URLs or credentials.
+- Single mode displays the selected camera. Grid mode supports explicit camera assignment/replacement/removal per slot and clear empty-slot states.
+- Avoid duplicate camera assignments within one grid; explain or focus the existing slot instead of silently creating duplicates.
+- Selecting a tile updates selectedCameraId and existing map/device context without forcing the entire grid to single mode.
+- External map/event selection focuses the existing tile if already present. If absent, use a documented deterministic policy such as replacing the active slot, while preserving other slots. When no active slot exists, use the first empty slot, otherwise the first slot. Do not unexpectedly repopulate the whole grid.
+- Preserve Map's unsaved-edit guard: monitoring selection must not force map navigation or discard placement edits. Use public selection actions; let Map apply its own guard.
+- New incidents may update badges but must not steal selected camera, change grid assignments, or interrupt operator viewing.
+- Preferences may be persisted locally if useful, scoped by user and validated against available cameras. Do not store credentials or images in browser persistence.
 
-Make focused, backward-compatible fixes for defects discovered above, such as ineffective read timeouts, blocked shutdown, stale preview status, unsafe error logging or broken UI/API integration. Confirm decoder timeout/transport support in the actual installed versions using official docs or Context7 when available. Do not merely set an unsupported option and claim a timeout guarantee.
+### C. Preview controls and truthful states
 
-If a decoder can block despite configured timeouts, use the smallest architecture-compatible containment mechanism and demonstrate bounded failure behavior. Avoid broad rewrites. Add meaningful regression tests for repaired behavior; run existing relevant tests and syntax/diff checks. Keep mocked tests clearly distinguished from hardware tests.
+- Show camera name, connection state, frame capture timestamp where available, preview freshness, and actual REAL/SIMULATED source designation.
+- Separate source connectivity, worker availability, and displayed-frame freshness. An ONLINE reader does not prove the displayed JPEG is fresh.
+- Cover no selection, initial loading, source disabled, connecting/reconnecting, offline, stale frame, worker unavailable, access denied, session expired, and preview error. Use actual available signals; show unknown when evidence is absent.
+- Retain the last good image only with an explicit stale/offline/paused overlay and last-frame time. Never relabel a cached frame as live because its HTTP request succeeded.
+- Provide Retry preview, expand/restore, and optional browser fullscreen with graceful unsupported behavior. Retry should retry the UI/API operation, not reboot the camera or start an extra reader.
+- Provide Pause/Resume preview if useful. Label it as a display-only action: it must not disable the source, ingestion, or AI monitoring. Do not add a global stop-monitoring switch disguised as pause.
+- Camera enable/disable remains an explicit existing administrative action, subject to server permissions; preserve existing access without duplicating the management UI.
+- Keep incident snapshots separate from live images. Selecting a historical incident must not overwrite the live panel with evidence labeled LIVE.
+- Never render invented bounding boxes, tracking IDs, counts, or AI statuses. Reuse existing real overlay data only if it includes a reliable matching frame identity/dimensions; otherwise leave overlays out and document the reason. Do not overlay old detections on a newer frame.
+- No audio, recording, PTZ, or camera controls unless already implemented and safely reusable; do not add fake action buttons.
 
-## Phase 6: Optional real AI validation, separately gated
+## 4. Preview lifecycle and resource limits
 
-Proceed only after real ingestion succeeds AND a trusted team-supplied checkpoint and matching package configuration are available. Do not download random weights or retrain as part of this task.
+Reuse the current authenticated JPEG/manifest transport unless a verified blocking defect requires a narrow fix. This milestone does not require WebRTC/HLS/MJPEG migration or browser-direct RTSP.
 
-- Expected existing package paths, relative to repository root:
-  - models/people_vehicle/weights/best.pt
-  - models/fire_smoke/weights/best.pt
-- Read the actual manifest/config contract. Check architecture, task type, classes/IDs, checksum, provenance and compatibility with the pinned runtime. Do not assume that renaming an arbitrary checkpoint best.pt makes it compatible.
-- Run existing metadata/runtime validation and explicit reload. Verify the worker actually loaded the requested version; an accepted reload request alone is insufficient.
-- Missing weights must stay MISSING_WEIGHTS, with ingestion and raw preview working independently. Never fall back silently to SIMULATED detections.
-- Start with people_vehicle. Verify real observations, frame association, tracking IDs and processing speed. An empty scene with zero detections is not sufficient proof of successful person detection.
-- Let the user draw a zone/line through Visor and perform a safe walk-through. Test one selected rule end to end: actual detection -> tracking/rule -> event candidate -> persisted incident -> matching evidence -> acknowledgment/resolution and audit history.
-- Check an ordinary negative case and repeat an event to inspect deduplication. Confirm observations/evidence belong to the correct source/frame; ensure reconnect does not generate spurious crossing events from stale tracks.
-- Do not stage actual fire or dangerous falls. Fire/smoke model testing, if needed, uses authorized recorded footage in a separate FILE test and must not be represented as a physical-camera fire test.
-- These are integration checks, not a general accuracy certification. Report the team's training metrics separately from runtime checks.
+- Build/reuse one per-tab preview subscription manager keyed by source ID. Multiple consumers of one camera share its fetch lifecycle; use reference counting or an equivalent explicit ownership model.
+- Only visible, active consumers request frames. Release subscriptions when slots change, pages/panels unmount, or the user logs out. Pause or stop requests when the document is hidden; resume promptly without a request burst. Do not unexpectedly unpause a user-paused preview.
+- At most one in-flight preview fetch per source, plus a bounded global concurrency cap suitable for four visible cameras. Schedule the next fetch after completion, not overlapping setInterval calls.
+- Apply reasonable timeouts and bounded retry backoff for network/5xx failures. Distinguish auth failures from transient failures; do not retry forever after logout or forbidden responses.
+- Abort obsolete requests. Use generation/frame identity checks so a late response cannot paint a different slot, camera, or logged-out screen.
+- Revoke replaced object URLs and release listeners, observers, timers, and image resources. Repeated navigation must not create accumulating polling loops or detached live consumers.
+- Reuse shared health refresh data or one bounded batch request; do not add one independent health poll per component/marker. Do not introduce extra camera connections to display four tiles.
+- Respect server freshness/cache contracts. Use cache behavior that avoids stale authenticated previews without generating unbounded unique DOM/images. Compare actual frame identity/timestamp; repeated bytes or repeated frame IDs are not newly captured frames.
+- If metadata and JPEG can refer to different frames, inspect the handoff contract and add the minimal compatible mechanism (for example frame ID/timestamp returned with the actual preview response). Do not treat an unrelated current manifest timestamp as proof of an old image's freshness.
+- Handle timestamp clock differences sensibly. Prefer server-reported age/health plus monotonic elapsed time since receipt where feasible; do not claim precise latency from unsynchronized browser/camera clocks. Document timestamp meanings and configurable stale thresholds.
+- Separate source FPS, configured sampling FPS, actual preview refresh rate, and inference FPS. Do not promise or force 25/30 FPS. The objective is current, stable, bounded monitoring with measured refresh behavior.
 
-## Camera settings to report, not change silently
+## 5. Backend boundaries and compatibility
 
-Create a short checklist of actual and pending values: codec, resolution, FPS, bitrate/mode, I-frame interval, substream, camera time/timezone/NTP. Record unknown values as unknown. If decoding is blocked by an encoding setting, explain the observed error and propose the smallest manual change, recording old/new values if the user performs it.
+- Reuse existing camera, health, worker, preview, and auth APIs. Add only small backward-compatible metadata/errors or aggregation needed by this feature, with documented contracts and tests.
+- Use existing API client/session handling and server-side permissions. Expired sessions must stop preview delivery; preview routes must remain authenticated. Do not expose source secrets in response metadata, URLs, logs, or errors.
+- Never run RTSP decode or AI inference inside an HTTP request just to serve a tile. Preserve the worker lease and ingestion process boundaries.
+- Do not introduce new schema/migrations unless a specific persistent requirement cannot be met otherwise. Viewing preferences do not automatically need a database table.
+- Investigate the old PermissionError/resource issue only if it reproduces or blocks this work. If preview publication needs a fix, preserve atomic publication, bounded retry behavior, and cleanup. Do not swallow arbitrary filesystem errors or declare historical HEVC warnings solved by a UI change.
+- No camera codec/FPS/IP/ONVIF configuration changes or physical unplug tests. Report a required physical/network action as a separate limitation.
 
-Recommend reserving the current camera address via router DHCP reservation as a follow-up, subject to the router supporting it. Do not set an arbitrary static IP that could conflict with the DHCP pool. ONVIF setup is deferred unless a specific existing integration requirement makes it necessary. No firmware upgrade is required by this task.
+## 6. File ownership and conflict avoidance
 
-## Evidence and delivery
+Primary owned areas: monitoring feature code/styles/tests, preview lifecycle service, narrowly scoped backend preview/health changes, and docs/LIVE_MONITORING_FEATURE.md. Adapt paths to the existing project.
 
-Create/update docs/CAMERA_VALIDATION.md with:
-- Date, tested repo commit plus dirty-work note, actual execution environment and relevant versions.
-- Source ID and sanitized stream address, stream metadata, commands actually executed with no secrets.
-- Results for direct decode, existing probe API, worker ingestion, Visor preview, freshness, bounded-duration stability and reconnect, including durations/measurements.
-- Exact defects, fixes and regression checks.
-- Human-performed observations clearly attributed to the user.
-- Unverified items and reproducible next steps.
+- Do not put the full feature in frontend/app.js or frontend/features/control-center.js. Those should import/compose monitoring and forward shared actions.
+- Keep any necessary extraction behavior-preserving and limited to monitoring code. Do not refactor Map or incident internals, change placement cardinality, or modify migration 0005_map_revision.
+- main.py may register routes or delegate to existing services; avoid growing it with a new monolithic preview subsystem. Follow the actual backend structure.
+- Preserve shared selection and API contracts. No private cross-feature DOM access or direct imports of another feature's implementation.
+- List every shared file changed and explain why. Avoid unrelated formatting, dependency upgrades, root instruction rewrites, or global CSS changes.
+- Document mount/update/dispose or equivalent interface, selection callbacks, subscription ownership, error/freshness states, and how another page embeds the same viewer.
 
-Preserve the repository's current readiness semantics. Distinguish in the report:
-- EXTERNAL_RTSP_VALIDATED: user-reported PASS for VLC channel 101.
-- BACKEND_INGESTION_VALIDATED: PASS only with real decoded frames through the actual worker and API.
-- VISOR_LIVE_VALIDATED: PASS only with real updating authenticated preview.
-- REAL_DISCONNECT_RECOVERY: PASS only after an observed real interruption and recovery.
-- REAL_MODEL_VALIDATED: only if real runtime/model checks pass; not inferred from metrics or mocks.
-- CAMERA_AI_E2E_VALIDATED: only if the actual camera event/evidence/operator workflow succeeds.
+## 7. Verification
 
-Do not silently redefine CAMERA_VALIDATED. Inspect its documented meaning, state which checks it requires and set it only when those checks have evidence. If no definition exists, keep it pending and propose the precise gate in the report rather than fabricating one. New report labels do not require new persistent API statuses or migrations.
+Use isolated test database/media/handoff directories and synthetic fixtures for deterministic testing. Fixtures must be explicitly labeled. A mocked transport test is not a physical camera validation.
 
-Keep private footage/evidence, credentials, local databases, model binaries and machine-specific secrets out of Git. Store test artifacts in existing ignored local storage and reference sanitized evidence in documentation. Do not erase pre-existing recordings or data.
+Automated tests should cover:
 
-Update IMPLEMENTATION_STATUS.md and relevant README instructions with actual results. Update AGENTS.md only if a concrete repo-specific workflow needs documenting; preserve current instructions and global settings.
+1. Per-source deduplication/reference counting, in-flight limits, timeout/backoff, and cancellation.
+2. Unmount/logout/hidden-tab cleanup and safe resumption; no stale response updates after camera switch.
+3. Repeated frame ID, stale image with ONLINE source, worker unavailable, disabled source, and recovery to a genuinely fresh image.
+4. Auth expiry/forbidden behavior without infinite retry or credential leakage.
+5. Grid assignment and shared selection behavior, including deleted/missing cameras.
+6. Actual preview frame identity/timestamp and authorization if backend contracts change.
 
-Final response in Thai: what was inspected, what changed, what passed with real hardware versus mocks, what remains blocked, and exact Windows next steps. Include a suggested commit message reflecting actual changes. Do not commit or push.
+Use existing test tooling. Avoid large new frameworks merely for small lifecycle tests.
+
+Playwright/browser QA:
+
+- Login -> Control Center -> select a map marker -> matching live camera and context.
+- Select an incident -> matching camera without confusing evidence and live preview; preserve Map dirty edits.
+- Open the dedicated Live Monitoring page with the selected camera, switch single/grid, assign/remove/focus slots, and return to Control Center.
+- Verify four distinct synthetic/test camera slots, empty slots, unavailable source, stale image, request errors, and recovery. Real/simulated labels must match actual sources.
+- Verify Pause affects display only, and expand/fullscreen restores layout and selection.
+- Rapidly switch cameras/pages and repeat navigation at least ten times. Inspect subscriptions, network request counts, and console errors for accumulation; do not claim absence of a memory leak solely from one screenshot.
+- Hide/resume the page using browser lifecycle tooling where available; otherwise document what was actually tested.
+- Logout during active preview: abort work, clear displayed private images, and reject further authenticated access.
+- Check 1440x900, 768px, and 375px layouts, keyboard focus, accessible button labels, and no horizontal page overflow.
+- Run a bounded stability observation (around five minutes) with synthetic sources, capturing refresh/freshness behavior and resource/request counts at start/end. Keep progress updates during the observation rather than blocking silently.
+
+Optional physical camera validation:
+
+- If the previously configured Hikvision source is reachable and credentials already exist locally, reuse it for a non-disruptive preview smoke/stability check. Do not request credentials in chat or change source configuration.
+- Do not open an extra competing worker or stop a user-owned process; inspect existing processes/lease first. Start only necessary services and record ownership. Stop your temporary services after QA; leave pre-existing services untouched.
+- Report REAL results separately, including duration, observed image updates/freshness, and errors. No camera available is not a blocker for completing the feature, but must remain unverified.
+- Physical reconnect, multi-camera hardware throughput, and real AI inference remain separate validations.
+
+Run relevant existing backend/frontend checks, syntax/compile checks, and git diff --check. Run a practical regression suite once after focused checks pass. Preserve pre-existing failure records. Do not claim PostgreSQL/Compose tested unless actually executed.
+
+## 8. Acceptance and delivery
+
+Done means:
+
+- Both existing UI surfaces use the shared monitoring module and remain visually integrated.
+- Single and 2x2 views work with shared camera/event/map selection.
+- Preview lifecycle is bounded, cancellable, and cleaned up on navigation/logout.
+- Displayed freshness and source/worker status are honest; cached images and simulated sources cannot masquerade as live real footage.
+- Existing Map editing, incident actions, rules, settings, AI Hub, and video analysis remain accessible and intact.
+- Required tests and browser QA are completed or specific environment blockers are documented without inflated claims.
+
+Finish docs/LIVE_MONITORING_FEATURE.md with implemented/deferred scope, module interfaces, refresh/freshness semantics, API changes, test evidence, limitations, and merge notes. Make only minimal links/entries in shared docs as needed.
+
+Final report must give branch/base/worktree and whether it depends on an unmerged Map commit; working user flows; main owned/shared files; actual tests and real vs synthetic observations; local run commands; known limitations; and a proposed commit message:
+
+`feat(monitoring): integrate shared live views across Visor`
+
+Do not commit or push. Leave reviewable changes ready for the user.
