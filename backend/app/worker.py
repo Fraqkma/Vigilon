@@ -10,6 +10,7 @@ from .detection import FrameContext, SimulatedScenarioPlugin
 from .detection import DetectionResult
 from .ai_hub import hub, report_worker_status, report_operation
 from .rules import TemporalRuleEvaluator
+from .scenario_rules import keep_candidate, needs_track
 from .services.incident_service import persist_detection
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO"),format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -25,20 +26,38 @@ def acquire_lease():
         if row: row.owner=OWNER; row.expires=t+timedelta(seconds=15)
         else: db.add(Lease(id=1,owner=OWNER,expires=t+timedelta(seconds=15)))
 
+def _replace_retry(source,target,attempts=6,pause=.02):
+    """Windows refuses os.replace while the API process has the target open (PermissionError).
+    Retry briefly instead of failing the whole frame, which also skipped AI for that frame."""
+    for attempt in range(attempts):
+        try: source.replace(target); return True
+        except PermissionError:
+            if attempt==attempts-1: return False
+            time.sleep(pause*(attempt+1))
+
+def _mtime(path):
+    try: return path.stat().st_mtime
+    except OSError: return 0.0
+
 def write_preview(camera_id,frame,scenario,resize_limit):
     path=HANDOFF_DIR/f"camera-{camera_id}-{frame.sequence}.jpg"; tmp=path.with_suffix(".tmp")
     if hasattr(frame.image,"save"): image=frame.image
     else:
         from PIL import Image
         image=Image.fromarray(cv2.cvtColor(frame.image,cv2.COLOR_BGR2RGB))
-    image.thumbnail((resize_limit,resize_limit)); image.save(tmp,format="JPEG",quality=82); tmp.replace(path)
+    image.thumbnail((resize_limit,resize_limit)); image.save(tmp,format="JPEG",quality=82)
+    if not _replace_retry(tmp,path): raise PermissionError("preview_jpeg_locked")
     meta={"captured_at":datetime.fromtimestamp(frame.captured_at,timezone.utc).isoformat(),"width":image.width,"height":image.height,"sequence":frame.sequence,"simulated":scenario!="real","file":path.name}
     manifest=HANDOFF_DIR/f"camera-{camera_id}.json"
-    temp=manifest.with_suffix(".tmp");temp.write_text(json.dumps(meta));temp.replace(manifest)
+    temp=manifest.with_suffix(".tmp");temp.write_text(json.dumps(meta))
+    # A locked manifest only delays the preview by one frame; the JPEG above is still valid evidence.
+    if not _replace_retry(temp,manifest): log.warning("source=%s preview_manifest_locked",camera_id)
     # Retain a tiny handoff window so an API response that just read the previous
     # manifest can still open its JPEG while the next frame arrives.
-    candidates=sorted(HANDOFF_DIR.glob(f"camera-{camera_id}-*.jpg"),key=lambda f:f.stat().st_mtime,reverse=True)
-    for old in candidates[3:]:old.unlink(missing_ok=True)
+    candidates=sorted(HANDOFF_DIR.glob(f"camera-{camera_id}-*.jpg"),key=_mtime,reverse=True)
+    for old in candidates[3:]:
+        try: old.unlink(missing_ok=True)
+        except PermissionError: pass   # still being served by the API; removed on a later frame
     return path
 
 class SourceRunner:
@@ -63,8 +82,19 @@ class SourceRunner:
                 adapter=self.adapter()
                 if not adapter.open(): raise RuntimeError("source_unavailable")
                 self.status="ONLINE";self.error_category="";delay=1
+                interval=1/max(1,self.camera.processing_fps or 2)
+                # Live RTSP: keep pulling packets at the camera's own frame rate and only convert one
+                # frame per processing slot. Sleeping between reads (the file/synthetic path below)
+                # lets packets back up, so a "fresh" frame can actually be seconds old.
+                drain=self.camera.source_type=="rtsp" and hasattr(adapter,"grab")
+                next_emit=time.monotonic()
                 while not self.stop_event.is_set():
-                    started=time.monotonic();frame=adapter.read()
+                    started=time.monotonic()
+                    if drain:
+                        if not adapter.grab(): raise EOFError("source_eof")
+                        if time.monotonic()<next_emit: continue
+                        frame=adapter.retrieve(); next_emit=time.monotonic()+interval
+                    else: frame=adapter.read()
                     if frame is None: raise EOFError("source_eof")
                     self.last_frame=datetime.fromtimestamp(frame.captured_at,timezone.utc);self.processed+=1
                     try: self.frames.put_nowait(frame)
@@ -74,8 +104,9 @@ class SourceRunner:
                         self.dropped+=1
                         try: self.frames.put_nowait(frame)
                         except queue.Full: self.dropped+=1
-                    pace=max(0,1/max(1,self.camera.processing_fps or 2)-(time.monotonic()-started))
-                    self.stop_event.wait(pace)
+                    if not drain:
+                        pace=max(0,interval-(time.monotonic()-started))
+                        self.stop_event.wait(pace)
             except Exception as e:
                 self.status="OFFLINE";self.reconnects+=1
                 self.error_category=(str(e) if isinstance(e,ValueError) else "source_eof" if isinstance(e,EOFError) else "source_unavailable" if isinstance(e,RuntimeError) else "decoder_error")[:48]
@@ -117,6 +148,8 @@ def process(camera,frame,evaluator):
                     event_type=scenario["event_type"]
                     rule=next((r for r in rules if r.event_type==event_type),None)
                     if not rule: continue
+                    # Untracked boxes cannot drive entry/crossing/dwell; they would share one state key.
+                    if needs_track(event_type,getattr(package,"tracker",None) is not None,observation["track_id"]): continue
                     track_id=str(observation["track_id"] if observation["track_id"] is not None else f"det-{observation['class_id']}")
                     defaults=package.scenario_defaults
                     if defaults.get("anchor","bottom_center")=="center":anchor=((observation["xyxy"][0]+observation["xyxy"][2])/2/frame.width,(observation["xyxy"][1]+observation["xyxy"][3])/2/frame.height)
@@ -129,7 +162,9 @@ def process(camera,frame,evaluator):
                     hysteresis=float(scenario.get("hysteresis_pixels",0))/max(frame.width,frame.height)
                     dwell=scenario.get("dwell_seconds",minimum) if event_type in ("DWELL","SMOKE_DETECTED","FIRE_DETECTED","SMOKE_FIRE","PERSON_DETECTED","VEHICLE_DETECTED") else None
                     candidates=state.update(track_id,anchor,event_time,zone=zone,line=line,direction=(rule.config or {}).get("direction",scenario.get("direction","A_TO_B")),dwell_seconds=dwell,minimum=minimum,event_prefix=f"{module_id}:{scenario_id}",hysteresis=hysteresis)
-                    confirmed=bool(candidates)
+                    # A DWELL rule with a zone also yields an ENTRY candidate after `minimum` seconds;
+                    # only the kind that matches this rule may open an incident.
+                    confirmed=any(keep_candidate(event_type,c) for c in candidates)
                     if not confirmed: continue
                     detection=DetectionResult(camera.id,camera.last_frame.isoformat(),frame.width,frame.height,event_type,
                         {"type":"rectangle","xyxy":observation["xyxy"],"coordinate_space":"original_pixels"},

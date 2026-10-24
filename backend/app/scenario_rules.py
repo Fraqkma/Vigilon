@@ -78,3 +78,27 @@ class ScenarioEvaluator:
         if at-self.last_event.get(key,-1e30)<self.cooldown:return None
         self.last_event[key]=at
         return {"event_key":key,"kind":kind,"timestamp":at,"track_id":track,"simulated":False}
+
+
+# --- Event-kind guard shared by LIVE (worker.py), FILE jobs (file_jobs.py) and the CLI (commands.py) ---
+# ScenarioEvaluator.update() can return ENTRY, LINE_CROSSING and DWELL candidates from one call.
+# Each scenario event type may only publish its own kind; otherwise a ZONE_ENTRY or LINE_CROSSING
+# scenario also emits a timer-based DWELL candidate under its own name (duplicate/false events).
+TRACK_EVENT_KIND = {"ZONE_ENTRY": "ENTRY", "LINE_CROSSING": "LINE_CROSSING", "DWELL": "DWELL"}
+
+
+def dwell_for(event_type: str, config: dict, minimum: float):
+    """Dwell/presence timer only for DWELL rules and presence episodes (fire/smoke, *_DETECTED)."""
+    if event_type in ("ZONE_ENTRY", "LINE_CROSSING"):
+        return None
+    return config.get("dwell_seconds", minimum)
+
+
+def keep_candidate(event_type: str, candidate: dict) -> bool:
+    """Presence-episode events (SMOKE_DETECTED, FIRE_DETECTED, ...) confirm through the DWELL timer."""
+    return candidate.get("kind") == TRACK_EVENT_KIND.get(event_type, "DWELL")
+
+
+def needs_track(event_type: str, has_tracker: bool, track_id) -> bool:
+    """True when a track-based rule receives an untracked box; such boxes would share one state key."""
+    return has_tracker and track_id is None and event_type in TRACK_EVENT_KIND

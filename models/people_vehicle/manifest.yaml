@@ -1,14 +1,18 @@
 schema_version: 1
 module_id: people_vehicle
-package_version: 0.1.0
+package_version: 0.2.0-coco-yolo26s
 adapter_id: vigilon.ultralytics.people_vehicle
 task: detect
 runtime:
   framework: ultralytics
-  tested_versions: []
+  tested_versions: ["8.4.0"]
   minimum_version: "8.4.0"
 weights:
   path: weights/best.pt
+  # Optional integrity pin. Official Ultralytics v8.4.0 assets:
+  #   yolo26s.pt 646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b
+  #   yolo26n.pt 9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef
+  # Paste the matching value here on the demo machine once best.pt is final.
   sha256: null
 inference: {path: inference.yaml}
 classes: {path: classes.json}

@@ -1,7 +1,7 @@
 defaults:
-  anchor: bottom_center
+  anchor: bottom_center          # feet / wheels point, better than box center for floor zones
   minimum_observation_seconds: 1.0
-  disappearance_grace_seconds: 1.0
+  disappearance_grace_seconds: 1.5   # a little longer than 1.0 to survive 1-2 missed frames at low FPS
   cooldown_seconds: 10.0
 scenarios:
   person_zone_entry:
@@ -16,7 +16,7 @@ scenarios:
     minimum_observation_seconds: 1.0
   directional_crossing:
     event_type: LINE_CROSSING
-    required_classes: [person, car, motorcycle, bus, truck]
+    required_classes: [person, bicycle, car, motorcycle, bus, truck]
     direction: A_TO_B
     hysteresis_pixels: 3
   person_dwell:
