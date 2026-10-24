@@ -14,6 +14,6 @@ def persist_detection(db,camera,frame,snapshot_source,detection,rule):
     if cooling:return None
     snapshot=f"incident-{uuid.uuid4().hex}.jpg"
     (EVIDENCE_DIR/snapshot).write_bytes(snapshot_source.read_bytes())
-    incident=Incident(camera_id=camera.id,rule_id=rule.id,event_type=detection.event_type,status=IncidentStatus.NEW,severity="HIGH",simulated=detection.simulated,snapshot=snapshot,metadata_json={"scenario":camera.scenario,"frame_sequence":frame.sequence,"captured_at":detection.captured_at,"geometry":detection.geometry,"detector_id":detection.detector_id,"detector_version":detection.detector_version,"confidence":detection.confidence,"metadata":detection.metadata},config_snapshot={"rule_id":rule.id,"minimum_duration_seconds":rule.min_duration,"zone":rule.zone})
+    incident=Incident(camera_id=camera.id,rule_id=rule.id,event_type=detection.event_type,status=IncidentStatus.NEW,severity="HIGH",simulated=detection.simulated,snapshot=snapshot,metadata_json={"scenario":camera.scenario,"frame_sequence":frame.sequence,"frame_size":[frame.width,frame.height],"captured_at":detection.captured_at,"geometry":detection.geometry,"detector_id":detection.detector_id,"detector_version":detection.detector_version,"confidence":detection.confidence,"metadata":detection.metadata},config_snapshot={"rule_id":rule.id,"minimum_duration_seconds":rule.min_duration,"zone":rule.zone})
     db.add(incident);db.flush();record_incident_created(db,incident.id)
     return incident
