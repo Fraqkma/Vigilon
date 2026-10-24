@@ -78,10 +78,12 @@ async def security(request,call_next):
     try: csrf(request); response=await call_next(request)
     except HTTPException as e: return Response(e.detail,status_code=e.status_code)
     response.headers["X-Content-Type-Options"]="nosniff"; response.headers["Referrer-Policy"]="no-referrer"; response.headers["X-Frame-Options"]="DENY"
+    # Frontend assets revalidate on every load (cheap 304 via ETag), so merged feature branches never run stale cached JS/CSS
+    if request.url.path.startswith("/assets/"): response.headers["Cache-Control"]="no-cache"
     return response
 
 @app.get("/",response_class=HTMLResponse)
-def home(): return (FRONTEND/"index.html").read_text()
+def home(): return inject_feature_scripts((FRONTEND/"index.html").read_text(),FRONTEND)  # adds feature scripts not listed in index.html
 @app.get("/api/health")
 def health(): return {"status":"ok","database":"configured","simulation":"SIMULATED scenarios only"}
 @app.get("/api/ai/modules")
@@ -606,3 +608,7 @@ def create_user(data:UserIn,user=Depends(require_admin)):
     try:
         with Session.begin() as db: row=User(username=data.username,password_hash=hasher.hash(data.password),role=data.role);db.add(row);db.flush();return {"id":row.id,"username":row.username,"role":row.role.value}
     except IntegrityError: raise HTTPException(409,"Username already exists")
+
+# Feature routers: every module in backend/app/features/ with build_router(deps). See docs/features/navigation-registry.md
+from .features import FeatureDeps, inject_feature_scripts, register_features
+register_features(app,FeatureDeps(current_user=current_user,require_admin=require_admin,utc_iso=utc_iso,incident_dict=incident_dict,camera_dict=camera_dict))

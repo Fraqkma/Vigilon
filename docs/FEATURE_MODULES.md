@@ -37,3 +37,9 @@ mounted.dispose();
 ```
 
 Keep server entities authoritative. Add a UI state field only when it coordinates a current cross-panel selection or view choice. New shell/shared API changes go through the integration owner; feature-only behavior should remain within the feature directory and scoped CSS.
+
+## Feature registry (one PR per feature)
+
+New pages, topbar services and backend routers register themselves instead of editing the shell, so each
+feature branch only adds its own files. See [features/navigation-registry.md](features/navigation-registry.md).
+Each feature documents itself in its own `docs/features/<feature>.md` file.

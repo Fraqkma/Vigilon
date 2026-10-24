@@ -4,3 +4,6 @@
 
 .logout-mobile{display:none}
 @media(max-width:640px){.logout-mobile{display:inline-flex;align-self:center}.topbar{justify-content:space-between}.topbar-meta{font-size:11px;gap:8px}}
+
+/* Feature registry: session services (e.g. alerts) render into this topbar slot */
+.topbar-slot{display:flex;align-items:center;gap:8px;margin-right:16px}
