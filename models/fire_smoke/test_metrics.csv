@@ -1,0 +1,4 @@
+split,class_id,class_name,images,instances,precision,recall,map50,map50_95,value_precision
+test,,all,3219,4070,0.7149016860616648,0.6521950528827016,0.7016098589432415,0.3968566749916803,full_overall_metrics
+test,0,smoke,1638,1881,0.778,0.732,0.778,0.488,rounded_from_log_3_decimals
+test,1,fire,821,2189,0.652,0.573,0.625,0.305,rounded_from_log_3_decimals

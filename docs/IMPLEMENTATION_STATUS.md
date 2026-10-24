@@ -1,8 +1,10 @@
 # Implementation status
 
-## AI 2 data preparation kickoff (2026-10-22)
+## AI 2 compact experimental model handoff (2026-10-24)
 
-Added `docs/FIRE_SMOKE_DATA_PREPARATION.md` and a blank source registry template under `docs/templates/`. The agreed scope is visible smoke/fire only, classes `0=smoke`, `1=fire`, separate YOLO26s weights, and Hub-owned event confirmation. The guide defines rights review, pilot annotation, grouped splits and delivery requirements. No dataset, weights, training runtime or accuracy has been validated in this step. Existing Hub packages and dependency pins were not modified. Next owner: AI 2 collects/reviews candidate data; Hub owner agrees a tested YOLO26-compatible runtime before delivery training.
+Training stopped at the user's request. Selected baseline_01 YOLO26s, classes 0=smoke/1=fire, input 640. Filled fire_smoke model card, evaluation, expected checkpoint hash, training arguments and compact test metrics. Recorded Colab evaluation: test precision 0.714902, recall 0.652195, mAP50 0.701610, mAP50-95 0.396857; fire recall 0.573 (rounded). Training/dataset independence, media rights and target-camera performance limitations remain explicit. Manifest tested version 8.4.0 reflects Colab evidence only. No checkpoint downloaded/loaded/activated locally, no Hub runtime or camera AI validation. See `docs/FIRE_SMOKE_HANDOFF.md`.
+
+Research scripts, notebooks, intermediate docs and detailed logs were archived to ignored `.data/fire_smoke_archive_20261024/research_archive.zip` with checksums before cleanup. Their focused tests had passed before archival; they are not application tests. Removed obsolete preparation-only tracked kickoff/template files and excluded experimental outputs from the Git handoff. Baseline data, publisher source archive and evidence needed for recovery remain ignored local assets. Current work merges team main; it does not change shared Hub code or runtime dependency choices. Next: owner transfers trusted baseline_01/best.pt, verifies SHA-256, then performs Hub metadata/runtime and authorized file integration checks.
 
 ## Latest local camera validation (2026-10-22)
 
