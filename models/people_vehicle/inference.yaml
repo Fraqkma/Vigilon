@@ -1,6 +1,7 @@
-imgsz: 640
-conf: 0.25
-iou: 0.45
-classes: null
-device: cpu
+# People/Vehicle baseline = official COCO-pretrained YOLO26 (no fine-tune yet)
+imgsz: 640               # Hub/Ultralytics letterbox 1280x720 -> 640 internally
+conf: 0.35               # raise from 0.25 to cut low-confidence false boxes; tune on your clips
+iou: 0.45                # kept for schema; YOLO26 is NMS-free so this has little effect
+classes: [0, 1, 2, 3, 5, 7]   # COCO ids: person, bicycle, car, motorcycle, bus, truck
+device: cpu              # works on every team PC; set "cuda" (or "auto") on the RTX 5060 Ti demo machine
 allow_cpu_fallback: false

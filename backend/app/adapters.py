@@ -61,7 +61,12 @@ class OpenCVAdapter:
         if u.port in (22,25,53,80,443,2375,3306,5432,6379,8080,9200): raise ValueError("rtsp_port_denied")
         return self.connection
     def open(self):
-        self.cap=cv2.VideoCapture(self._validate(),cv2.CAP_FFMPEG,[cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,self.timeout*1000,cv2.CAP_PROP_READ_TIMEOUT_MSEC,self.timeout*1000])
+        target=self._validate()
+        if self.source_type!="file":
+            # RTSP over TCP: no silent UDP packet loss (a common cause of HEVC "Could not find ref
+            # with POC" warnings). An operator-provided OPENCV_FFMPEG_CAPTURE_OPTIONS still wins.
+            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS","rtsp_transport;tcp")
+        self.cap=cv2.VideoCapture(target,cv2.CAP_FFMPEG,[cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,self.timeout*1000,cv2.CAP_PROP_READ_TIMEOUT_MSEC,self.timeout*1000])
         raw_fps=float(self.cap.get(cv2.CAP_PROP_FPS) or 0);self.fps=raw_fps if math.isfinite(raw_fps) and raw_fps>0 else 0
         self.sequence=0;self.last_media_time=-1.0
         return self.cap.isOpened()
@@ -76,5 +81,14 @@ class OpenCVAdapter:
             media_time=position if position>self.last_media_time else max(self.last_media_time+step,(self.sequence-1)*step)
             self.last_media_time=media_time
         return Frame(image,time.time(),w,h,self.sequence,"media" if media_time is not None else "capture_utc",media_time)
+    def grab(self):
+        """Pull and decode the next packet without the BGR conversion (cheap). Used to drain live streams."""
+        return bool(self.cap.grab())
+    def retrieve(self):
+        """Convert the most recently grabbed frame to BGR and wrap it as a Frame (live sources only)."""
+        ok,image=self.cap.retrieve()
+        if not ok or image is None: return None
+        h,w=image.shape[:2]; self.sequence+=1
+        return Frame(image,time.time(),w,h,self.sequence)
     def close(self):
         if self.cap: self.cap.release(); self.cap=None

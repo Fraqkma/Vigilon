@@ -12,7 +12,7 @@ from pathlib import Path
 from .ai_hub import BUILTINS, hub, report_worker_status
 from .core import HANDOFF_DIR, MEDIA_DIR, MEDIA_ROOTS
 from .adapters import OpenCVAdapter
-from .scenario_rules import ScenarioEvaluator
+from .scenario_rules import ScenarioEvaluator, dwell_for, keep_candidate, needs_track
 
 JOB_DIR=HANDOFF_DIR/"file-jobs"
 JOB_DIR.mkdir(parents=True,exist_ok=True)
@@ -112,13 +112,17 @@ def _process_module_frame(module,package,frame,media_time,job_id,states,override
         state=states.setdefault((module,scenario_id),ScenarioEvaluator(float(config.get("disappearance_grace_seconds",defaults.get("disappearance_grace_seconds",1))),float(config.get("cooldown_seconds",defaults.get("cooldown_seconds",10)))))
         for detection in observations:
             if detection["label"] not in required:continue
+            # Untracked boxes cannot drive entry/crossing/dwell; they would share one state key.
+            if needs_track(config["event_type"],getattr(package,"tracker",None) is not None,detection["track_id"]):continue
             box=detection["xyxy"]
             anchor=((box[0]+box[2])/2/frame.width,(box[1]+box[3])/2/frame.height) if defaults.get("anchor")=="center" else ((box[0]+box[2])/2/frame.width,box[3]/frame.height)
             minimum=float(config.get("minimum_observation_seconds",defaults.get("minimum_observation_seconds",0)))
             candidates=state.update(str(detection["track_id"] if detection["track_id"] is not None else detection["class_id"]),anchor,media_time,
-                zone=(config.get("zone") or {}).get("points"),line=config.get("line"),direction=config.get("direction","A_TO_B"),dwell_seconds=config.get("dwell_seconds",minimum),
+                zone=(config.get("zone") or {}).get("points"),line=config.get("line"),direction=config.get("direction","A_TO_B"),dwell_seconds=dwell_for(config["event_type"],config,minimum),
                 minimum=minimum,event_prefix=f"{module}:{scenario_id}",hysteresis=float(config.get("hysteresis_pixels",0))/max(frame.width,frame.height))
             for event in candidates:
+                # Publish only the candidate kind that belongs to this scenario's event type.
+                if not keep_candidate(config["event_type"],event):continue
                 if len(result["events"])<10000:result["events"].append({"media_time":media_time,"frame_id":frame.sequence,"event_type":config["event_type"],"scenario_id":scenario_id,"candidate":event,"detection":detection,"simulated":False})
                 else:result["events_truncated"]=True
 
