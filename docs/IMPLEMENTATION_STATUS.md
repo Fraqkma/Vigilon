@@ -1,5 +1,9 @@
 # Implementation status
 
+## Module telemetry publication fix (2026-10-25)
+
+A supplied Windows Server run processed 899 frames and displayed one event but ended FAILED with WinError 5 while replacing module-status-fire_smoke.json. Module status publication now uses unique same-directory temporary files and four bounded replace attempts for PermissionError. If publication still fails, it logs a warning and preserves the previous status without turning successful model inference into a failed FILE job. Inference exceptions and durable job/result writes retain their existing failure behavior. Tests cover transient sharing denial, persistent denial with preservation/cleanup, distinct temporary paths, and the worker-report exception boundary. The Server run must be repeated after applying this fix; no successful Server retest is claimed.
+
 ## AI 2 compact experimental model handoff (2026-10-24)
 
 Training stopped at the user's request. Selected baseline_01 YOLO26s, classes 0=smoke/1=fire, input 640. Filled fire_smoke model card, evaluation, expected checkpoint hash, training arguments and compact test metrics. Recorded Colab evaluation: test precision 0.714902, recall 0.652195, mAP50 0.701610, mAP50-95 0.396857; fire recall 0.573 (rounded). Training/dataset independence, media rights and target-camera performance limitations remain explicit. Manifest tested version 8.4.0 reflects Colab evidence only. No checkpoint downloaded/loaded/activated locally, no Hub runtime or camera AI validation. See `docs/FIRE_SMOKE_HANDOFF.md`.
