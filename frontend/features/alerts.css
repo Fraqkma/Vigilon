@@ -1,0 +1,39 @@
+/* Alert center (.al-): topbar bell, toasts and alert panel. Loaded by features/alerts.js.
+   Uses the shared tokens from style.css; every selector is prefixed so other pages are unaffected. */
+.alert-slot { display: flex; align-items: center; }
+.al-bell { display: inline-flex; align-items: center; gap: 7px; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); padding: 6px 11px; font-size: 13px; position: relative; }
+.al-bell.has-unread { border-color: #7a3a3f; background: #2a1c20; }
+.al-count { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--danger); color: #1b0a0b; font-size: 12px; text-align: center; }
+.al-root { position: fixed; inset: 0 auto auto 0; width: 0; height: 0; z-index: 60; }
+.al-toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 10px; width: min(360px, calc(100vw - 32px)); z-index: 61; }
+.al-toast { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--warning); border-radius: 9px; padding: 11px 13px; box-shadow: 0 12px 30px rgba(0, 0, 0, .45); animation: al-in .18s ease-out; }
+.al-toast.al-sev-high, .al-toast.al-sev-critical, .al-toast.al-health-bad { border-left-color: var(--danger); }
+.al-toast.al-health-good { border-left-color: var(--good); }
+.al-toast-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.al-toast-meta { color: var(--muted); font-size: 13px; margin: 4px 0 9px; }
+.al-toast-actions { display: flex; gap: 8px; }
+.al-chip { font-size: 11px; font-weight: 800; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; background: #4a2a2e; color: #ffd9db; white-space: nowrap; }
+.al-chip.bad { background: #4a2a2e; color: #ffd9db; }
+.al-chip.good { background: #1f3a2b; color: #c9f2d7; }
+.al-panel { position: fixed; top: 64px; right: 18px; width: min(420px, calc(100vw - 24px)); max-height: min(70vh, 620px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; box-shadow: 0 18px 40px rgba(0, 0, 0, .5); z-index: 62; }
+.al-panel-head { display: flex; justify-content: space-between; gap: 10px; padding: 13px 14px 8px; border-bottom: 1px solid var(--line); }
+.al-panel-head h2 { margin: 0; font-size: 17px; }
+.al-panel-head p { margin: 2px 0 0; }
+.al-panel-tools { display: flex; gap: 6px; align-items: flex-start; }
+.al-prefs { display: grid; gap: 4px; padding: 9px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.al-list { overflow-y: auto; padding: 6px; display: grid; gap: 4px; }
+.al-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: transparent; color: var(--text); border: 1px solid transparent; font-weight: 500; padding: 8px 9px; }
+.al-item:hover { background: var(--surface-2); border-color: var(--line); filter: none; }
+.al-item.unread { background: #20181b; }
+.al-item-text { display: grid; flex: 1; min-width: 0; }
+.al-item-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.al-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); flex: none; }
+@keyframes al-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+@media (max-width: 640px) {
+  .al-bell span:not(.al-count) { display: none; }
+  .al-panel { top: 58px; right: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .al-toast { animation: none; }
+}
