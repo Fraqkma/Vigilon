@@ -1,0 +1,38 @@
+/* Camera Health page (.hl-). Loaded by features/health.js; uses the shared tokens from style.css.
+   Every selector is prefixed so other pages are unaffected. */
+.hl-window { min-width: 160px; }
+.hl-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+/* position:relative keeps the absolutely positioned .sr-only header inside the scroll box (no page overflow on phones) */
+.hl-table-wrap { position: relative; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.hl-table { width: 100%; min-width: 960px; border-collapse: collapse; font-size: 14px; }
+.hl-table th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; padding: 11px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.hl-table td { padding: 11px 12px; border-bottom: 1px solid #252f37; vertical-align: top; }
+.hl-table tr:last-child td { border-bottom: 0; }
+.hl-table tr.is-selected td { background: #18232a; }
+.hl-table th:first-child, .hl-table td:first-child { min-width: 190px; }
+.hl-caption { margin-top: 4px; }
+.hl-uptime { display: grid; gap: 5px; min-width: 110px; }
+.hl-bar { height: 6px; border-radius: 4px; background: #2b353d; overflow: hidden; }
+.hl-bar i { display: block; height: 100%; background: var(--good); }
+.hl-timeline-cell { min-width: 190px; }
+.hl-timeline { position: relative; height: 16px; border-radius: 4px; background: #232c33; overflow: hidden; margin-top: 3px; }
+.hl-seg { position: absolute; top: 0; bottom: 0; }
+.hl-online { background: var(--good); }
+.hl-offline { background: var(--danger); }
+.hl-disabled { background: #5d6a73; }
+.hl-unknown { background: repeating-linear-gradient(135deg, #2a343b 0 4px, #343f47 4px 8px); }
+.hl-legend { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 10px 2px 0; font-size: 13px; color: var(--muted); }
+.hl-legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.hl-actions { display: flex; gap: 6px; flex-wrap: nowrap; justify-content: flex-end; }
+.hl-actions .hl-disable { color: #ffb4b8; border-color: #5a3337; }
+.hl-history { margin-top: 18px; }
+.hl-events { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hl-events li { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid #252f37; }
+
+@media (max-width: 900px) {
+  .hl-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .hl-summary { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .hl-events li { grid-template-columns: 1fr; gap: 3px; }
+}

@@ -162,7 +162,13 @@ def process_hub_reload_requests():
             request.unlink(missing_ok=True)
 def main():
     from .file_jobs import FileJobRunner
-    acquire_lease();runners={};keys={};evaluator=TemporalRuleEvaluator();file_jobs=FileJobRunner();file_jobs.start()
+    from .services.health_service import RECORDED_STATES, record_gap_after_crash, record_transition, worker_state  # Camera Health history
+    with Session() as db: previous_worker=worker_state(db)
+    acquire_lease()
+    if previous_worker["status"]=="OFFLINE" and previous_worker["last_seen"]:
+        with Session.begin() as db: record_gap_after_crash(db,previous_worker["last_seen"])
+    health_seen=set()  # cameras whose first state this run has been recorded
+    runners={};keys={};evaluator=TemporalRuleEvaluator();file_jobs=FileJobRunner();file_jobs.start()
     log.info("worker_started owner=%s",OWNER)
     try:
         while True:
@@ -171,8 +177,11 @@ def main():
             active={c.id for c in cameras}
             for camera_id in set(runners)-active:
                 runners.pop(camera_id).stop();keys.pop(camera_id,None)
-                with Session.begin() as db:db.execute(update(Camera).where(Camera.id==camera_id).values(status="DISABLED",error_category="disabled"))
+                with Session.begin() as db:
+                    db.execute(update(Camera).where(Camera.id==camera_id).values(status="DISABLED",error_category="disabled"))
+                    record_transition(db,camera_id,None,"DISABLED")
             for camera in cameras:
+                previous_status=camera.status  # stored value from the last loop; process() below mutates camera.status
                 key=config_key(camera)
                 if camera.id in runners and keys[camera.id]!=key:
                     runners.pop(camera.id).stop()
@@ -187,12 +196,22 @@ def main():
                     except Exception as e:log.exception("source=%s processing_error category=%s",camera.id,type(e).__name__)
                 with Session.begin() as db:
                     db.execute(update(Camera).where(Camera.id==camera.id).values(status=runner.status,error_category=runner.error_category,last_frame=runner.last_frame,reconnects=runner.reconnects,processed=runner.processed,dropped=runner.dropped))
+                    first=camera.id not in health_seen
+                    if first or runner.status!=previous_status:
+                        # First observation this run is recorded too (deduplicated against the last stored state)
+                        record_transition(db,camera.id,None if first else previous_status,runner.status,runner.error_category)
+                        if runner.status in RECORDED_STATES:health_seen.add(camera.id)
             with Session.begin() as db:db.execute(update(Lease).where(Lease.id==1,Lease.owner==OWNER).values(expires=now()+timedelta(seconds=15)))
             time.sleep(.1)
     except KeyboardInterrupt:log.info("worker_stopping")
     finally:
         for runner in runners.values():runner.stop()
         for runner in runners.values():runner.join()
+        try:
+            # A clean stop is recorded so uptime does not count the stopped period as ONLINE
+            with Session.begin() as db:
+                for camera_id in runners:record_transition(db,camera_id,None,"UNKNOWN")
+        except Exception:log.exception("health_history_shutdown_record_failed")
         file_jobs_stopped=file_jobs.close()
         with Session.begin() as db:db.execute(update(Lease).where(Lease.id==1,Lease.owner==OWNER).values(expires=now(),owner=""))
         if file_jobs_stopped:hub.close()
