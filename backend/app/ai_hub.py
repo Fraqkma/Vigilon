@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from .status_io import write_status
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_ROOT = Path(os.getenv("VIGILON_MODEL_DIR", ROOT / "models")).expanduser().resolve()
@@ -338,8 +340,11 @@ def report_operation(module_id:str,operation:str,status:str,error:str|None=None,
 def report_worker_status(package: ModelPackage | None, module_id: str | None = None, status: str | None = None, error: str | None = None) -> None:
     module=module_id or (package.module_id if package else None)
     if not module:return
-    HANDOFF_ROOT.mkdir(parents=True,exist_ok=True)
     body=package.public() if package else {"module_id":module,"runtime_validated":False,"latency_ms":0,"processed":0}
     body.update({"status":status or body.get("status","ERROR"),"error":error if error is not None else body.get("error"),"worker_updated_at":datetime.now(timezone.utc).isoformat()})
-    target=HANDOFF_ROOT/f"module-status-{module}.json";temp=target.with_suffix(".tmp")
-    temp.write_text(json.dumps(body),encoding="utf-8");temp.replace(target)
+    target=HANDOFF_ROOT/f"module-status-{module}.json"
+    try:
+        write_status(target,body)
+    except OSError:
+        # Replaceable telemetry must not turn successful inference into a failed job.
+        logging.getLogger(__name__).warning("module_status_publish_failed module=%s",module,exc_info=True)
