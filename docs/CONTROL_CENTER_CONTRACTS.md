@@ -4,13 +4,13 @@ All routes are same-origin under `/api`, require the existing signed session coo
 
 ## Plans and camera placements
 
-- `GET /api/plans` returns `[{id,name,location_label,has_image,image_width,image_height,placements:[{camera_id,x,y}]}]`.
+- `GET /api/plans` returns `[{id,name,location_label,has_image,image_width,image_height,revision,placements:[{camera_id,x,y}]}]`.
 - `POST /api/plans` (`ADMIN`) accepts `{"name":"North Wing","location_label":"Building A · Level 2"}` and returns the created shape with HTTP 201.
 - `PATCH /api/plans/{id}` (`ADMIN`) accepts the same name/location fields and returns the updated plan. Unknown ID returns 404.
-- `POST /api/plans/{id}/image` (`ADMIN`) accepts raw PNG/JPEG bytes with `Content-Type: image/png` or `image/jpeg`; maximum 8 MiB and 20 megapixels. Unsupported/undecodable image is 415; oversize is 413; missing plan is 404. Storage names are generated. Image access is `GET /api/plans/{id}/image` with an authenticated private/no-store response.
-- `PUT /api/plans/{id}/placements` (`ADMIN`) accepts `{"placements":[{"camera_id":12,"x":0.25,"y":0.75}]}` and replaces the plan's complete placement set. Coordinates are finite normalized values in `[0,1]`; each camera may be placed once and each camera has at most one plan placement. Unknown cameras and duplicates return 422. Camera IDs refer to existing camera records.
+- `POST /api/plans/{id}/image?revision={n}&placement_policy=keep|clear` (`ADMIN`) accepts raw PNG/JPEG bytes with `Content-Type: image/png` or `image/jpeg`; maximum 8 MiB and 20 megapixels. Unsupported/undecodable image is 415; oversize is 413; stale revision is 409; missing plan is 404. Storage names are generated. `keep` preserves normalized positions for operator review; `clear` removes the selected plan's placements. Image access is `GET /api/plans/{id}/image` with an authenticated private/no-store response.
+- `PUT /api/plans/{id}/placements` (`ADMIN`) accepts `{"revision":1,"placements":[{"camera_id":12,"x":0.25,"y":0.75}]}` and atomically replaces the plan's complete placement set. Coordinates are finite normalized values in `[0,1]`; each camera may be placed once and each camera has at most one plan placement. Unknown cameras and duplicates return 422. A stale plan revision or a camera already placed on another plan returns 409. Camera IDs refer to existing camera records.
 - `DELETE /api/plans/{id}` (`ADMIN`) returns 204 and removes its image and placements, while preserving camera and incident records. Replacing plan image preserves normalized coordinates.
-- Plan names are labels and may repeat; camera placements are unique across all plans. Saving a placement list replaces the selected plan's placements and moves any listed camera out of its former plan.
+- Plan names are labels and may repeat; camera placements are unique across all plans. Revision increments on placement-set save and image replacement. Saving a placement list does not relocate cameras from another plan.
 
 ## Optional camera context
 

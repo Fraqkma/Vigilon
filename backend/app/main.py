@@ -1,4 +1,4 @@
-import base64, hashlib, hmac, json, logging, mimetypes, os, re, secrets, threading, time, uuid
+import base64, hashlib, hmac, json, logging, mimetypes, os, re, secrets, threading, time, uuid, math
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response, Depends, Query
@@ -64,8 +64,13 @@ class FloorPlanIn(BaseModel):
         self.name=self.name.strip();self.location_label=self.location_label.strip()
         if not self.name:raise ValueError("Plan name cannot be blank")
         return self
-class PlacementIn(BaseModel): camera_id:int=Field(gt=0); x:float=Field(ge=0,le=1); y:float=Field(ge=0,le=1)
-class PlacementsIn(BaseModel): placements:list[PlacementIn]=Field(max_length=500)
+class PlacementIn(BaseModel):
+    camera_id:int=Field(gt=0); x:float; y:float
+    @model_validator(mode="after")
+    def finite_coordinates(self):
+        if not math.isfinite(self.x) or not math.isfinite(self.y) or not 0<=self.x<=1 or not 0<=self.y<=1:raise HTTPException(422,"Placement coordinates must be finite normalized values in [0,1]")
+        return self
+class PlacementsIn(BaseModel): revision:int=Field(ge=1); placements:list[PlacementIn]=Field(max_length=500)
 class CameraContextIn(BaseModel): manufacturer:str|None=Field(default=None,max_length=120); model:str|None=Field(default=None,max_length=120); specifications:str|None=Field(default=None,max_length=500); responsible_contact:str|None=Field(default=None,max_length=200); response_notes:str|None=Field(default=None,max_length=1000)
 
 @app.middleware("http")
@@ -329,7 +334,7 @@ def camera_dict(c): return {"id":c.id,"name":c.name,"location":c.location,"sourc
 
 def floor_plan_dict(db, plan):
     placements=db.scalars(select(CameraPlacement).where(CameraPlacement.plan_id==plan.id)).all()
-    return {"id":plan.id,"name":plan.name,"location_label":plan.location_label,"has_image":bool(plan.image_name),"image_width":plan.image_width,"image_height":plan.image_height,"placements":[{"camera_id":p.camera_id,"x":p.x,"y":p.y} for p in placements]}
+    return {"id":plan.id,"name":plan.name,"location_label":plan.location_label,"has_image":bool(plan.image_name),"image_width":plan.image_width,"image_height":plan.image_height,"revision":plan.revision,"placements":[{"camera_id":p.camera_id,"x":p.x,"y":p.y} for p in placements]}
 
 @app.get("/api/plans")
 def list_floor_plans(user=Depends(current_user)):
@@ -350,19 +355,25 @@ def update_floor_plan(plan_id:int,data:FloorPlanIn,user=Depends(require_admin)):
 @app.put("/api/plans/{plan_id}/placements")
 def save_plan_placements(plan_id:int,data:PlacementsIn,user=Depends(require_admin)):
     if len({p.camera_id for p in data.placements})!=len(data.placements):raise HTTPException(422,"A camera can appear only once on a floor plan")
-    with Session.begin() as db:
-        if not db.get(FloorPlan,plan_id):raise HTTPException(404,"Floor plan not found")
-        camera_ids={c.id for c in db.scalars(select(Camera).where(Camera.id.in_([p.camera_id for p in data.placements]))).all()} if data.placements else set()
-        if camera_ids!={p.camera_id for p in data.placements}:raise HTTPException(422,"Placement references an unknown camera")
-        db.query(CameraPlacement).filter(CameraPlacement.plan_id==plan_id).delete(synchronize_session=False)
-        for item in data.placements:
-            previous=db.scalar(select(CameraPlacement).where(CameraPlacement.camera_id==item.camera_id))
-            if previous and previous.plan_id!=plan_id:db.delete(previous)
-            db.add(CameraPlacement(plan_id=plan_id,camera_id=item.camera_id,x=item.x,y=item.y))
-        db.flush();plan=db.get(FloorPlan,plan_id);return floor_plan_dict(db,plan)
+    try:
+        with Session.begin() as db:
+            plan=db.get(FloorPlan,plan_id)
+            if not plan:raise HTTPException(404,"Floor plan not found")
+            changed=db.execute(update(FloorPlan).where(FloorPlan.id==plan_id,FloorPlan.revision==data.revision).values(revision=FloorPlan.revision+1))
+            if changed.rowcount!=1:raise HTTPException(409,"Floor plan changed since it was loaded. Reload and reapply your placement edits.")
+            requested={p.camera_id for p in data.placements}
+            camera_ids={c.id for c in db.scalars(select(Camera).where(Camera.id.in_(requested))).all()} if requested else set()
+            if camera_ids!=requested:raise HTTPException(422,"Placement references an unknown camera")
+            existing_elsewhere=[p.camera_id for p in db.scalars(select(CameraPlacement).where(CameraPlacement.camera_id.in_(requested),CameraPlacement.plan_id!=plan_id)).all()] if requested else []
+            if existing_elsewhere:raise HTTPException(409,"A camera is already placed on another plan. Remove it there before moving it.")
+            db.query(CameraPlacement).filter(CameraPlacement.plan_id==plan_id).delete(synchronize_session=False)
+            for item in data.placements:db.add(CameraPlacement(plan_id=plan_id,camera_id=item.camera_id,x=item.x,y=item.y))
+            db.flush();plan=db.get(FloorPlan,plan_id);db.refresh(plan);return floor_plan_dict(db,plan)
+    except IntegrityError as exc:
+        raise HTTPException(409,"A camera placement changed concurrently. Reload both plans and reapply the edit.") from exc
 
 @app.post("/api/plans/{plan_id}/image")
-async def upload_plan_image(plan_id:int,request:Request,user=Depends(require_admin)):
+async def upload_plan_image(plan_id:int,request:Request,placement_policy:str=Query(default="keep",pattern="^(keep|clear)$"),revision:int=Query(ge=1),user=Depends(require_admin)):
     raw=await request.body()
     if not raw or len(raw)>8*1024*1024:raise HTTPException(413,"Floor plan image must be between 1 byte and 8 MiB")
     if raw.startswith(b"\x89PNG\r\n\x1a\n"):extension="png"
@@ -376,19 +387,40 @@ async def upload_plan_image(plan_id:int,request:Request,user=Depends(require_adm
             width,height=image.size
             if width<1 or height<1 or width*height>20_000_000:raise HTTPException(413,"Floor plan image exceeds the 20 megapixel limit")
             image.verify()
-        with Image.open(BytesIO(raw)) as image:image.load()
+        with Image.open(BytesIO(raw)) as image:
+            orientation=image.getexif().get(274,1)
+            image.load()
+            if orientation!=1:
+                from PIL import ImageOps
+                corrected=ImageOps.exif_transpose(image);width,height=corrected.size;output=BytesIO()
+                if extension=="jpg":corrected.convert("RGB").save(output,format="JPEG",quality=95,optimize=True)
+                else:corrected.save(output,format="PNG",optimize=True)
+                raw=output.getvalue()
+                if len(raw)>8*1024*1024:raise HTTPException(413,"Normalized floor plan image exceeds the 8 MiB limit")
     except HTTPException:raise
     except Image.DecompressionBombError:raise HTTPException(413,"Floor plan image exceeds the 20 megapixel limit")
     except (UnidentifiedImageError,OSError,ValueError):raise HTTPException(415,"Image could not be decoded")
     if width<1 or height<1 or width*height>20_000_000:raise HTTPException(413,"Floor plan image exceeds the 20 megapixel limit")
-    old_filename=None
-    with Session.begin() as db:
-        plan=db.get(FloorPlan,plan_id)
-        if not plan:raise HTTPException(404,"Floor plan not found")
-        filename=f"{uuid.uuid4().hex}.{extension}";target=FLOOR_PLAN_DIR/filename;old_filename=plan.image_name
-        target.write_bytes(raw);plan.image_name=filename;plan.image_width=width;plan.image_height=height
-    if old_filename and re.fullmatch(r"[0-9a-f]{32}\.(png|jpg)",old_filename):(FLOOR_PLAN_DIR/old_filename).unlink(missing_ok=True)
-    return {"plan_id":plan_id,"has_image":True,"image_width":width,"image_height":height}
+    filename=f"{uuid.uuid4().hex}.{extension}";target=FLOOR_PLAN_DIR/filename;old_filename=None
+    target.write_bytes(raw)
+    try:
+        with Session.begin() as db:
+            plan=db.get(FloorPlan,plan_id)
+            if not plan:raise HTTPException(404,"Floor plan not found")
+            changed=db.execute(update(FloorPlan).where(FloorPlan.id==plan_id,FloorPlan.revision==revision).values(revision=FloorPlan.revision+1))
+            if changed.rowcount!=1:raise HTTPException(409,"Floor plan changed since it was loaded. Reload before replacing its image.")
+            old_filename=plan.image_name
+            if placement_policy=="clear":db.query(CameraPlacement).filter(CameraPlacement.plan_id==plan_id).delete(synchronize_session=False)
+            plan.image_name=filename;plan.image_width=width;plan.image_height=height
+            db.flush();db.refresh(plan)
+            result=floor_plan_dict(db,plan)
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    if old_filename and re.fullmatch(r"[0-9a-f]{32}\.(png|jpg)",old_filename) and old_filename!=filename:
+        try:(FLOOR_PLAN_DIR/old_filename).unlink(missing_ok=True)
+        except OSError:log.warning("orphaned_floor_plan_image plan_id=%s",plan_id)
+    return result
 
 @app.get("/api/plans/{plan_id}/image")
 def get_plan_image(plan_id:int,user=Depends(current_user)):
