@@ -1,1 +1,124 @@
-{"status":"NOT_PROVIDED","dataset":null,"dataset_rights":null,"split_method":null,"training_run":null,"metrics":null,"hardware":null,"runtime_versions":null}
+{
+  "status": "PROVIDED",
+  "dataset": {
+    "name": "D-Fire",
+    "source_url": "https://github.com/gaia-solutions-on-demand/DFireDataset",
+    "download_url": "https://www.kaggle.com/datasets/sayedgamal99/smoke-fire-detection-yolo",
+    "source_version": 1,
+    "prepared_version": "dataset_baseline_v1",
+    "image_counts": {
+      "train": 15025,
+      "val": 3220,
+      "test": 3219
+    }
+  },
+  "dataset_rights": {
+    "status": "UNRESOLVED",
+    "note": "CC0 collection declaration does not resolve original-provider and web-media terms"
+  },
+  "split_method": {
+    "method": "Conservative transitive similarity groups, all AoF assigned to train",
+    "clip_site_independence": "UNVERIFIED",
+    "note": "No random frame repartitioning; group proposals do not establish source identity"
+  },
+  "training_run": {
+    "name": "baseline_01",
+    "architecture": "YOLO26s",
+    "pretrained": "yolo26s.pt",
+    "epochs": 50,
+    "imgsz": 640,
+    "batch": 4,
+    "seed": 42,
+    "selected_checkpoint": "best.pt",
+    "notebook_url": "https://colab.research.google.com/drive/1m93KAmv33x95Twr90HEjTrq6QdhI6_es"
+  },
+  "metrics": {
+    "test": {
+      "images": 3219,
+      "instances": 4070,
+      "background_images": 1443,
+      "precision": 0.7149016860616648,
+      "recall": 0.6521950528827016,
+      "map50": 0.7016098589432415,
+      "map50_95": 0.3968566749916803,
+      "per_class": [
+        {
+          "class_id": 0,
+          "class_name": "smoke",
+          "images_with_class": 1638,
+          "instances": 1881,
+          "precision": 0.778,
+          "recall": 0.732,
+          "ap50": 0.778,
+          "ap50_95": 0.488
+        },
+        {
+          "class_id": 1,
+          "class_name": "fire",
+          "images_with_class": 821,
+          "instances": 2189,
+          "precision": 0.652,
+          "recall": 0.573,
+          "ap50": 0.625,
+          "ap50_95": 0.305
+        }
+      ]
+    },
+    "validation_best_training_epoch": {
+      "epoch": 48,
+      "precision": 0.72346,
+      "recall": 0.6378,
+      "map50": 0.69761,
+      "map50_95": 0.39891
+    },
+    "validation_final_best_checkpoint": {
+      "precision": 0.7260887075867042,
+      "recall": 0.6370961008015592,
+      "map50": 0.6976978843529777,
+      "map50_95": 0.3989712240945702
+    }
+  },
+  "hardware": {
+    "training_and_public_video_inference": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "hub_hardware": "NOT_TESTED"
+  },
+  "runtime_versions": {
+    "python": "3.13.15",
+    "ultralytics": "8.4.0",
+    "torch": "2.11.0+cu130",
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+  },
+  "hub_runtime_validation": "NOT_TESTED",
+  "target_camera_ai_validation": "NOT_TESTED",
+  "checkpoint_sha256_from_colab": "685874db1eb4ea3c049b17e8bf6970830603c8eaba93478cf2a67f1da5801cc6",
+  "checkpoint_local_verification": "NOT_DOWNLOADED_OR_LOADED",
+  "jpeg_repaired_during_test": [
+    "WEB07305.jpg",
+    "WEB07312.jpg",
+    "WEB07540.jpg",
+    "WEB11313.jpg",
+    "WEB11320.jpg"
+  ],
+  "evidence": {
+    "source": "Saved notebook output and user-provided evaluation log; evaluation was not rerun to create this report",
+    "notebook_url": "https://colab.research.google.com/drive/1m93KAmv33x95Twr90HEjTrq6QdhI6_es",
+    "evaluation_folder_url": "https://drive.google.com/drive/folders/1j47rWeaq1BsU5OJHngfCzJABzfzQBCqY"
+  },
+  "limitations": [
+    "Experimental baseline; clip/site independence remains unverified",
+    "Dataset media rights review remains unresolved",
+    "Per-class values are rounded to three decimals in the saved log",
+    "No real-camera, event-level alert accuracy, or deployment-hardware validation is established",
+    "Reported inference timing is specific to the Colab GPU and evaluation settings",
+    "Small/window flame misses observed on public miniature-house video",
+    "Exploratory clips not verified independent of training media",
+    "No normal target-camera clips or event-level false-alert validation"
+  ],
+  "alternate_run": {
+    "name": "baseline_02",
+    "best_epoch": 46,
+    "best_validation_map50_95": 0.39575,
+    "selected": false,
+    "note": "Slightly lower single-run validation score; no causal/significance claim"
+  }
+}
