@@ -94,15 +94,16 @@ def ai_modules(user=Depends(current_user)):
 @app.post("/api/cameras/test-connection")
 def test_camera_connection(data:ConnectionTestIn,user=Depends(require_admin)):
     """Bounded probe using the exact configured address and the existing source policy."""
-    if data.source_type not in ("rtsp","file"):
-        raise HTTPException(422,"Connectivity test supports RTSP/RTSPS and local media only")
+    if data.source_type not in ("rtsp","file","webcam"):
+        raise HTTPException(422,"Connectivity test supports RTSP/RTSPS, local media and local webcams only")
     from .adapters import OpenCVAdapter
+    from .webcam_adapter import WebcamAdapter
     if not PROBE_LIMIT.acquire(blocking=False):raise HTTPException(429,"Two bounded source probes are already running")
     outcome=[]
     def probe():
         adapter=None
         try:
-            adapter=OpenCVAdapter(data.source_type,data.connection,MEDIA_ROOTS,timeout=data.timeout_seconds)
+            adapter=WebcamAdapter(data.connection,timeout=data.timeout_seconds) if data.source_type=="webcam" else OpenCVAdapter(data.source_type,data.connection,MEDIA_ROOTS,timeout=data.timeout_seconds)
             if not adapter.open():outcome.append({"reachable":False,"message":"Source did not open within the configured timeout."});return
             frame=adapter.read();outcome.append({"reachable":bool(frame),"message":"Connected and decoded a frame." if frame else "Connected, but no frame was decoded."})
         except Exception as exc:
@@ -273,7 +274,7 @@ def assign_ai_modules(camera_id:int,data:dict,user=Depends(require_admin)):
         camera=db.get(Camera,camera_id)
         if not camera: raise HTTPException(404,"Camera not found")
         if camera.simulated: raise HTTPException(422,"Real model modules cannot be assigned to simulated sources")
-        if camera.source_type!="rtsp": raise HTTPException(422,"Live module assignment requires an RTSP/RTSPS source; use analyze-video for ordered FILE analysis")
+        if camera.source_type not in ("rtsp","webcam"): raise HTTPException(422,"Live module assignment requires an RTSP/RTSPS or local webcam source; use analyze-video for ordered FILE analysis")
         readiness={row["module_id"]:row for row in hub.list()}
         unavailable=[m for m in modules if readiness.get(m,{}).get("status") not in ("READY","RUNNING")]
         if unavailable:raise HTTPException(409,{"detail":"Runtime-ready module required","modules":[readiness.get(m,{"module_id":m,"status":"UNKNOWN"}) for m in unavailable]})
@@ -453,7 +454,11 @@ def cameras(user=Depends(current_user)):
     with Session() as db: return [camera_dict(c) for c in db.scalars(select(Camera).order_by(Camera.id))]
 @app.post("/api/cameras")
 def create_camera(data:CameraIn,user=Depends(require_admin)):
-    if data.source_type not in ("synthetic","file","rtsp"): raise HTTPException(422,"Unsupported source type")
+    if data.source_type not in ("synthetic","file","rtsp","webcam"): raise HTTPException(422,"Unsupported source type")
+    if data.source_type=="webcam":
+        from .webcam_adapter import parse_webcam_index
+        try:data.connection=str(parse_webcam_index(data.connection or "0"))
+        except ValueError:raise HTTPException(422,"Webcam source needs a device index from 0 to 9")
     if data.source_type=="synthetic" and data.scenario not in ("normal","obstruction","person_down","smoke_fire"): raise HTTPException(422,"Unknown simulated scenario")
     if data.source_type!="synthetic" and data.scenario!="normal": raise HTTPException(422,"Simulated scenarios cannot be enabled on real sources")
     if data.source_type=="file" and not data.connection: raise HTTPException(422,"Media path is required")
@@ -480,6 +485,10 @@ def update_camera(camera_id:int,data:CameraIn,user=Depends(require_admin)):
             try:OpenCVAdapter("file",data.connection,MEDIA_ROOTS,timeout=data.timeout_seconds)._validate()
             except Exception:raise HTTPException(422,"File source must resolve to a file beneath an authorized media root")
             c.connection=data.connection
+        elif c.source_type=="webcam" and data.connection:
+            from .webcam_adapter import parse_webcam_index
+            try:c.connection=str(parse_webcam_index(data.connection))
+            except ValueError:raise HTTPException(422,"Webcam source needs a device index from 0 to 9")
         if c.simulated:
             if data.scenario not in ("normal","obstruction","person_down","smoke_fire"): raise HTTPException(422,"Unknown simulated scenario")
             c.scenario=data.scenario
