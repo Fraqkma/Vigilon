@@ -13,7 +13,7 @@
 .ev-zoom:focus-visible { outline: 2px solid #8ce9e2; outline-offset: 2px; }
 .ev-zoom .cc-evidence { max-height: 240px; }
 .cc-detail.is-expanded .ev-zoom .cc-evidence { max-height: 58vh; }
-.ev-zoom-hint { position: absolute; right: 10px; bottom: 10px; padding: 2px 8px; border-radius: 6px; background: #10151add; color: var(--text); font-size: 12px; font-weight: 700; line-height: 1.6; }
+.ev-zoom-hint { position: absolute; right: 10px; bottom: 10px; padding: 2px 8px; border-radius: 6px; background: #10151add; color: #ffffff; font-size: 12px; font-weight: 700; line-height: 1.6; }
 .ev-review-row { margin: 0 0 4px; }
 
 /* Read-only evidence for other pages (Event Logs detail) */

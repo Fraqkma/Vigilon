@@ -383,7 +383,7 @@
       const populated = tiles.filter(tile => tile.camera);
       const oldIds = [...state.subscriptions.values()].map(item => `${item.slot}:${item.cameraId}`).sort().join('|');
       const newIds = populated.map(item => `${item.slot}:${item.camera.id}`).sort().join('|');
-      host.innerHTML = `<div class="lm-viewer ${state.compact ? 'lm-viewer-compact' : ''} ${state.expanded ? 'lm-viewer-expanded' : ''} ${state.mode === 'grid' ? 'lm-viewer-grid' : 'lm-viewer-single'}" data-viewer-mode="${state.mode}"><div class="lm-viewer-toolbar"><span class="lm-viewer-caption">${state.mode === 'grid' ? '2×2 live views' : 'Selected camera'}</span><div class="lm-viewer-actions"><button type="button" class="secondary small" data-lm-pause aria-pressed="${state.paused}">${state.paused ? 'Resume display' : 'Pause display'}</button><button type="button" class="secondary small" data-lm-expand aria-pressed="${state.expanded}">${state.expanded ? 'Restore' : 'Expand'}</button><button type="button" class="secondary small" data-lm-fullscreen>Full screen</button></div></div><div class="lm-tile-grid">${tiles.map(({ slot, camera }) => camera ? `<article class="lm-tile ${camera.id === state.selectedCameraId ? 'is-selected' : ''}" data-lm-tile data-slot="${slot}" data-camera-id="${camera.id}"><header class="lm-tile-header"><button type="button" class="lm-tile-select" data-lm-select="${camera.id}" aria-pressed="${camera.id === state.selectedCameraId}">${escapeHTML(camera.name)}</button><span class="status">${escapeHTML(cameraHealth(camera))}</span></header><div class="lm-frame" data-lm-frame><img data-lm-image alt="${escapeHTML(camera.name)} authenticated camera preview" hidden><div class="lm-frame-state" data-lm-state role="status">Waiting for preview.</div><span class="lm-source-label">${camera.simulated ? 'SIMULATED SOURCE' : 'REAL SOURCE'}</span></div><footer class="lm-tile-footer"><span data-lm-meta>Frame time unavailable · freshness unknown</span><span class="lm-tile-controls"><button type="button" class="secondary small" data-lm-retry="${camera.id}">Retry preview</button>${options.onCameraDetails ? `<button type="button" class="secondary small" data-lm-details="${camera.id}">Camera details</button>` : ''}</span></footer></article>` : `<article class="lm-tile lm-empty-tile" data-slot="${slot}"><strong>Empty slot ${slot + 1}</strong><span>Choose a camera from the list.</span></article>`).join('')}</div></div>`;
+      host.innerHTML = `<div class="lm-viewer ${state.compact ? 'lm-viewer-compact' : ''} ${state.expanded ? 'lm-viewer-expanded' : ''} ${state.mode === 'grid' ? 'lm-viewer-grid' : 'lm-viewer-single'}" data-viewer-mode="${state.mode}"><div class="lm-viewer-toolbar"><span class="lm-viewer-caption">${state.mode === 'grid' ? '2×2 live views' : 'Selected camera'}</span><div class="lm-viewer-actions"><button type="button" class="secondary small" data-lm-pause aria-pressed="${state.paused}">${state.paused ? 'Resume display' : 'Pause display'}</button><button type="button" class="secondary small" data-lm-expand aria-pressed="${state.expanded}">${state.expanded ? 'Restore' : 'Expand'}</button><button type="button" class="secondary small" data-lm-fullscreen>Full screen</button></div></div><div class="lm-tile-grid">${tiles.map(({ slot, camera }) => camera ? `<article class="lm-tile ${camera.id === state.selectedCameraId ? 'is-selected' : ''}" data-lm-tile data-slot="${slot}" data-camera-id="${camera.id}"><header class="lm-tile-header"><button type="button" class="lm-tile-select" data-lm-select="${camera.id}" aria-pressed="${camera.id === state.selectedCameraId}">${escapeHTML(camera.name)}</button><span class="status">${escapeHTML(cameraHealth(camera))}</span></header><div class="lm-frame" data-lm-frame><img data-lm-image alt="${escapeHTML(camera.name)} authenticated camera preview" hidden><div class="lm-frame-state" data-lm-state role="status">Waiting for preview.</div><span class="lm-source-label">${camera.simulated ? 'SIMULATED SOURCE' : 'REAL SOURCE'}</span></div><footer class="lm-tile-footer"><span data-lm-captured>Waiting for frame</span><details class="lm-diagnostics"><summary>Frame details</summary><span data-lm-meta>Frame time unavailable</span></details><span class="lm-tile-controls"><button type="button" class="secondary small" data-lm-retry="${camera.id}">Retry preview</button>${options.onCameraDetails ? `<button type="button" class="secondary small" data-lm-details="${camera.id}">Camera details</button>` : ''}</span></footer></article>` : `<article class="lm-tile lm-empty-tile" data-slot="${slot}"><strong>Empty slot ${slot + 1}</strong><span>Choose a camera from the list.</span></article>`).join('')}</div></div>`;
       bindViewerActions();
       if (oldIds !== newIds) bindSubscriptions(tiles);
       else refreshTileStates();
@@ -406,6 +406,8 @@
       overlay.className = `lm-frame-state ${status.tone}`;
       overlay.hidden = status.tone === 'fresh' && !state.paused;
       const meta = tile.querySelector('[data-lm-meta]');
+      const retry=tile.querySelector('[data-lm-retry]');retry.hidden=status.tone==='fresh';
+      tile.querySelector('[data-lm-captured]').textContent=`${status.title} / ${formatTime(preview?.capturedAt||camera.last_frame)}`;
       const captured = preview?.capturedAt || camera.last_frame;
       const ageSeconds = preview?.frameAgeMs === null || preview?.frameAgeMs === undefined ? null : Math.max(0, Math.floor(preview.frameAgeMs / 1000));
       const refresh = preview?.previewRefreshHz === null || preview?.previewRefreshHz === undefined ? 'refresh rate measuring' : `new frames ${preview.previewRefreshHz.toFixed(1)}/s`;
@@ -431,7 +433,7 @@
         for (const record of records) {
           const slot = Number(record.target.dataset.slot);
           const subscription = state.subscriptions.get(slot);
-          if (subscription) { subscription.visible = record.isIntersecting && record.intersectionRatio > 0.05; subscription.subscription.setActive(subscription.visible && !state.paused); }
+          if (subscription) { subscription.visible = record.isIntersecting && record.intersectionRatio > 0.05; subscription.subscription.setActive(subscription.visible && !state.paused && subscription.camera.enabled); }
         }
       }, { threshold: [0, 0.05] }) : null;
       for (const record of state.subscriptions.values()) record.subscription.release();
@@ -444,7 +446,7 @@
         const subscription = manager.subscribe(camera.id, preview => {
           state.previewStates.set(camera.id, preview);
           paintTile(slot, camera, preview);
-        }, { active: visible && !state.paused });
+        }, { active: visible && !state.paused && camera.enabled });
         state.subscriptions.set(slot, { cameraId: camera.id, camera, subscription, visible });
         if (state.observer && tile) state.observer.observe(tile);
       }
@@ -480,7 +482,7 @@
 
     function setPaused(paused) {
       state.paused = !!paused;
-      for (const record of state.subscriptions.values()) record.subscription.setActive(!state.paused && record.visible);
+      for (const record of state.subscriptions.values()) record.subscription.setActive(!state.paused && record.visible && record.camera.enabled);
       const button = host.querySelector('[data-lm-pause]');
       if (button) { button.textContent = state.paused ? 'Resume display' : 'Pause display'; button.setAttribute('aria-pressed', String(state.paused)); }
       refreshTileStates();
@@ -499,7 +501,7 @@
       const nextIds = camerasInView().map(tile => `${tile.slot}:${tile.camera?.id || ''}`).join('|');
       if (previousIds !== nextIds) renderShell();
       else {
-        for (const record of state.subscriptions.values()) record.camera = state.cameras.find(camera => camera.id === record.cameraId) || record.camera;
+        for (const record of state.subscriptions.values()) { record.camera = state.cameras.find(camera => camera.id === record.cameraId) || record.camera; record.subscription.setActive(!state.paused && record.visible && record.camera.enabled); }
         refreshTileStates(); updateHighlights();
       }
     }
@@ -547,7 +549,7 @@
     function build() {
       if (state.disposed) return;
       const retained = host.querySelector('[data-live-viewer]');
-      host.innerHTML = `<header class="page-head"><div class="page-title-wrap"><div class="eyebrow">Operations</div><h1>Live Monitoring</h1><p class="muted">Authenticated worker-published frames. Source health, worker state and frame freshness are shown separately.</p></div><div class="actions-row">${options.me?.role === 'ADMIN' ? '<button type="button" data-lm-add-camera>Add camera</button>' : ''}<button type="button" class="secondary" data-lm-open-control>Open Control Center</button></div></header><div class="lm-layout"><aside class="lm-camera-sidebar"><div class="lm-list-heading"><h2>Cameras</h2><span>${eligible().length}</span></div>${listMarkup()}<div data-lm-message class="notice" role="status" ${state.message ? '' : 'hidden'}>${escapeHTML(state.message)}</div></aside><section class="lm-main"><div class="lm-page-toolbar"><div class="lm-mode-actions"><button type="button" class="secondary small ${pref.mode === 'single' ? 'active' : ''}" data-lm-mode="single" aria-pressed="${pref.mode === 'single'}">Single</button><button type="button" class="secondary small ${pref.mode === 'grid' ? 'active' : ''}" data-lm-mode="grid" aria-pressed="${pref.mode === 'grid'}">2×2 grid</button><span class="lm-worker-state">Ingestion worker: ${escapeHTML(state.workerState)}</span></div></div>${assignmentMarkup()}<div class="lm-viewer-shell"><div data-live-viewer class="lm-viewer-mount"></div></div><p class="muted small-text">Pause affects this display only. Source ingestion and configured AI processing continue. Captured time and age come from the worker-published frame metadata; refresh rate is independent of source and inference FPS.</p></section></div>`;
+      host.innerHTML = `<header class="page-head"><div class="page-title-wrap"><div class="eyebrow">Operations</div><h1>Live Monitoring</h1><p class="muted">Choose a camera or arrange up to four live views.</p></div><div class="actions-row">${options.me?.role === 'ADMIN' ? '<button type="button" data-lm-add-camera>Add camera</button>' : ''}<button type="button" class="secondary" data-lm-open-control>Open Control Center</button></div></header><div class="lm-layout"><aside class="lm-camera-sidebar"><div class="lm-list-heading"><h2>Cameras</h2><span>${eligible().length}</span></div>${listMarkup()}<div data-lm-message class="notice" role="status" ${state.message ? '' : 'hidden'}>${escapeHTML(state.message)}</div></aside><section class="lm-main"><div class="lm-page-toolbar"><div class="lm-mode-actions"><button type="button" class="secondary small ${pref.mode === 'single' ? 'active' : ''}" data-lm-mode="single" aria-pressed="${pref.mode === 'single'}">Single</button><button type="button" class="secondary small ${pref.mode === 'grid' ? 'active' : ''}" data-lm-mode="grid" aria-pressed="${pref.mode === 'grid'}">2×2 grid</button><span class="lm-worker-state">Ingestion worker: ${escapeHTML(state.workerState)}</span></div></div>${assignmentMarkup()}<div class="lm-viewer-shell"><div data-live-viewer class="lm-viewer-mount"></div></div><p class="muted small-text">Pausing the display does not stop camera monitoring or AI processing.</p></section></div>`;
       const mount = host.querySelector('[data-live-viewer]');
       if (retained) { mount.replaceWith(retained); viewerHost = retained; viewer?.update({ cameras: state.cameras, selectedCameraId: state.selectedCameraId, mode: pref.mode, assignments: pref.assignments, workerState: state.workerState }); }
       else { viewerHost = mount; viewer = mountViewer({ host: mount, cameras: state.cameras, selectedCameraId: state.selectedCameraId, mode: pref.mode, assignments: pref.assignments, workerState: state.workerState, onSelectCamera: selectCamera, onFocusSlot: slot => { pref.activeSlot = slot; }, onCameraDetails: options.onCameraDetails }); }

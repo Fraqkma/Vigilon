@@ -83,7 +83,7 @@ async def security(request,call_next):
     return response
 
 @app.get("/",response_class=HTMLResponse)
-def home(): return inject_feature_scripts((FRONTEND/"index.html").read_text(),FRONTEND)  # adds feature scripts not listed in index.html
+def home(): return inject_feature_scripts((FRONTEND/"index.html").read_text(encoding="utf-8"),FRONTEND)  # adds feature scripts not listed in index.html
 @app.get("/api/health")
 def health(): return {"status":"ok","database":"configured","simulation":"SIMULATED scenarios only"}
 @app.get("/api/ai/modules")

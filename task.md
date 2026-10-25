@@ -1,81 +1,111 @@
-# Vigilon — Integrated feature audit and login diagnosis
+# Vigilon / Visor — Minimal UI and usability redesign
 
-## Mission
-Audit the current Vigilon implementation after teammates' feature work, verify integration with the existing Visor UI, and diagnose the user's `Invalid credentials` login failure first. Implement focused fixes for confirmed defects and validate them. Do not merely produce a plan. Do not rebuild completed features or expand product scope.
+## User request and outcome
+The current website feels sloppy, cluttered and extremely difficult to use. Redesign the actual existing Visor frontend into a coherent, minimal, polished product, inspired by the clarity of the user's previous KBTG / Flow Sync digital-banking UI work. Improve information architecture and workflows, not just colors or border radii. Implement and validate the redesign end to end in this repository. A mockup, separate demo site, proposal, or CSS-only patch is not the requested result.
 
-Communicate findings and the final handoff in Thai; keep shared technical documentation and code identifiers in English. Do not commit, push, merge branches, or deploy.
+Reference context: the recovered KBTG direction used white/charcoal neutrals, readable typography, strong hierarchy, restrained cards and a red accent. The exact foreign-bank reference and screenshot are not available here; do not pretend to have seen them or invent a bank name. Translate the simplicity and polish to camera operations. Use Vigilon/Visor identity, without bank branding or financial widgets. For Visor, reserve red/amber for danger and incident severity; use a restrained teal accent for normal primary actions. Default to a light interface; video itself can retain a dark canvas. If the user supplies an exact visual reference during work, incorporate it.
 
-## 1. Establish the actual baseline
-- Read applicable AGENTS.md, README, current implementation/status docs, feature contracts and ownership docs. Respect configured Codex/ECC workflows and available MCP tools; do not reinstall tools or alter global configuration.
-- Inspect Git status, current branch, HEAD, local branches and recent history. Preserve all existing work, including task.md. Do not stash, reset, clean, or switch a dirty checkout automatically.
-- If clean, create/use `fix/integration-audit` from the current verified integration baseline. Do not assume main contains every teammate feature. Report missing/unmerged features as such, not as code defects; do not merge them automatically. Read other local branches only where necessary to establish delivery status.
-- Historical reports only: Map was committed as `4d7cea5`; Live Monitoring branched from it. Map and monitoring were reported to pass 5 and 10 focused tests respectively and 29 backend tests. These are not current test results. Reconcile actual HEAD and migrations instead of trusting these counts.
-- Discover actual startup/test commands and installed dependencies. Preserve the existing frontend stack and module boundaries.
+## 1. Inspect and establish scope
+- Read applicable AGENTS.md, README, current architecture/status, module ownership and feature contracts. Respect actual Codex settings, installed skills, ECC workflows and available MCP tools. Do not change global tools/configuration.
+- Inspect git status, branch, HEAD, recent commits and the actual frontend stack. Preserve teammate edits, task.md, existing data and API contracts. If clean, create/use `feat/visor-ui-refresh` from the current verified feature baseline; do not automatically merge missing branches or discard changes. If dirty, continue safely in the current checkout and record this.
+- Run the existing app with isolated test data where possible. Inspect every reachable route, login, dialogs and representative workflows in the browser before editing. Read source as well as docs; do not assume all claimed features exist.
+- Record the most important concrete usability problems and a concise implementation plan in `docs/VISOR_UI_REDESIGN.md`, then proceed without waiting for design approval. Make ordinary design decisions autonomously.
+- Preserve the current implementation technology. Historical reports describe plain JavaScript feature modules: verify this. Do not introduce React, a new build pipeline, a new UI framework or a backend rewrite for a visual redesign.
 
-## 2. Priority zero: investigate Invalid credentials
-Identify the failing layer before changing passwords or data. Never request that the user paste a password into chat, print secrets/password hashes, log login bodies, or expose session cookies.
+## 2. Visual direction — deliberate, quiet and usable
+Use these as initial tokens, then refine for actual contrast and screenshots:
+- Page background #F6F7F9, surfaces #FFFFFF, primary text #17212B, secondary text #526170, subtle border #DDE3E8, primary action #0F766E with white text.
+- Dark text, generous but purposeful whitespace, subtle dividers, minimal shadows, modest 8–12 px corner radii. No gradients, glass effects, neon, oversized welcome banners, decorative charts, unnecessary KPI tiles, or a card around every field.
+- One clean sans-serif stack with Thai fallback, e.g. system-ui, Segoe UI, Noto Sans Thai, sans-serif. Use existing local assets if available; do not make rendering depend on external font CDNs. Fix broken character encoding, including page titles, as UTF-8 at the source rather than masking corrupted text with CSS.
+- Consistent type scale: roughly 14–16 px body, 12–13 px secondary labels, 24–28 px page heading. Readable line heights and tabular numerals for time/counts where useful.
+- Use a 4/8 px spacing rhythm, consistent field heights and alignment. Prefer 40–44 px main controls; touch targets at least 44 px on mobile. One icon family with visible labels for important actions; no emoji as product icons.
+- Status indicators combine text with restrained color. Do not confuse camera health, incident severity and incident workflow status.
+- One clear primary action per page or active workflow. Secondary controls are neutral; destructive actions are separated and explicit.
+- Standardize buttons, fields, select menus, tabs, badges, tables/lists, menus, dialogs, drawers, toasts, empty states and loading states across all existing pages.
+- No global CSS hacks that break maps, video or dialogs. Use shared tokens/primitives and scoped feature styles; remove superseded rules carefully.
 
-### Runtime and configuration
-1. Identify the UI origin, actual login request URL/method/content type/payload field names, status code, and sanitized response. Verify which local API process/checkout/port serves it. Distinguish backend authentication rejection from validation, network, CSRF, CORS, server, and session-cookie failures incorrectly labelled by the UI.
-2. Trace settings precedence through process environment, .env loader, defaults, launch scripts and working directory. Compare API, CLI/bootstrap, worker and migration configuration without dumping .env or full process command lines that may contain secrets.
-3. Resolve the effective database target using the application's own configuration: absolute SQLite path, or redacted PostgreSQL host/database/schema. Check for inherited test DATABASE_URL overrides, relative SQLite paths resolving differently, an unintended newly created database, wrong API instance, and stale frontend API configuration. A new terminal does not change an already running API process.
-4. Inspect the intended database read-only first. Verify schema revision, expected account existence, identifier matching rules, enabled/locked status and supported password hash format without exposing hash values. Check whether bootstrap is create-only and whether changing bootstrap values in .env affects existing accounts; explain the behavior actually found.
-5. Inspect password verification and dependency compatibility, form field mapping, username/email normalization and exception handling. Never trim or otherwise change password semantics to make login pass.
-6. If authentication succeeds but the next request fails, investigate cookie domain/path/Secure/SameSite, localhost versus 127.0.0.1, proxy/origin configuration, session persistence and signing-key consistency. Do not weaken security protections as a workaround.
+## 3. App shell and navigation
+- A compact left sidebar, approximately 220 px on desktop, a quiet top bar and a clear content area. Consistent page title, short contextual subtitle only when useful, and relevant actions.
+- Organize existing destinations into a small, understandable hierarchy. Suggested mapping: Operations (Control Center, Live Monitoring, Incidents); Analysis (Video Analysis, AI Modules/Hub); Configuration (Cameras, Maps, Settings). Adapt to actual routes and permissions: do not create duplicate pages merely to match these labels. Preserve useful Overview content if present and avoid two competing home dashboards.
+- Keep important destinations directly discoverable; secondary administration can be grouped. Keep existing deep links working or provide explicit compatible routing.
+- No confusing duplicate camera settings or competing notification controls. One canonical editing flow per entity, linked from other surfaces.
+- Put user/account/logout in a predictable location. Keep meaningful alerts visible without an always-expanded diagnostics wall.
+- Improve login using the same design language, proper labels/autocomplete, accessible password visibility control and clear error/loading states. Preserve authentication, CSRF/session handling and account semantics.
 
-### Corrective action
-- Fix confirmed configuration/code defects with the smallest compatible change. Preserve existing users, cameras, plans, incidents, keys and evidence. Do not delete/reseed the database, rotate keys, disable auth, hardcode credentials or add a login bypass.
-- Back up operational data with a database-appropriate consistent backup before any necessary migration or data mutation; keep backups out of Git. Test migration changes on a disposable copy first.
-- Do not silently reset an existing account or create an operational administrator. If a password is genuinely unknown or the intended account is absent, prepare an exact recovery/bootstrap command using verified existing tooling and a hidden interactive password prompt. If tooling is absent, implement a narrowly scoped local administrative recovery command with identity/target checks and regression tests. Leave execution against the operational account to the user unless explicitly authorized. Respect the established session-revocation policy and document any limitation.
-- Verify successful login, authenticated identity, allowed page access, logout, rejected wrong password and unauthorized requests with an isolated test account. Do not claim the user's account was recovered unless that login was actually verified. If user input is needed, continue all independent audit work.
-- Provide the root cause with evidence, or a clearly marked unresolved diagnosis plus the exact missing evidence. Do not guess that the password itself is wrong.
+## 4. Control Center — simplify the original six-panel layout
+The earlier fire-alarm-console layout is context, not an immutable requirement. Preserve its capabilities while removing the visual overload.
 
-## 3. Feature and integration audit
-Create `docs/INTEGRATION_AUDIT.md` with a matrix: feature, branch/HEAD availability, implementation evidence, UI entry point, API/persistence, permission checks, test evidence, status, remaining issue and owner. Use PASS / FAIL / PARTIAL / NOT PRESENT / NOT VERIFIED. Separate synthetic/mock coverage from real hardware/model verification.
+Desktop starting layout:
+- A compact context toolbar: existing site/plan selector, relevant health/incident summary and only the necessary actions. Do not invent site selectors unsupported by the data model.
+- Main workspace: Map about 55–60% width, live Camera about 40–45%. Both have aligned headers, useful canvas sizes and expand/restore controls. Avoid fixed heights that crop content on common laptops.
+- Below: a readable incident list/table with concise filters, clear selected state and the most useful columns (time, event, location/camera, severity, status). No duplicate event feeds.
+- Context/device/specification information becomes a secondary drawer, details tab or disclosure. Keep it one obvious action away, not permanently occupying a third of the screen.
+- Selecting an incident opens a usable detail/action area (drawer or adjacent pane at wide widths). Show incident-time evidence, source, time, status and actions clearly. Live footage must be separately labelled.
+- Acknowledge, Resolve and False Alarm remain accessible with correct permissions and transitions; Acknowledge must not imply resolved. Prevent accidental duplicate submissions and show persistence errors.
+- New events update counters/list without stealing selection, changing the selected camera or closing ongoing work.
+- Preserve selection synchronization: map marker -> correct camera/context; incident -> correct plan/source/details. Handle cross-plan sources and cameras not yet placed with explicit useful states.
+- No freely draggable desktop-window system. Avoid multiple nested scroll areas; one main page scroll, with deliberate bounded scrolling only where needed.
 
-Inspect and exercise what actually exists:
-- **Control Center:** all six panels, synchronized camera/incident selection, correct location/device context; new events must not steal operator selection. Original pages remain reachable.
-- **Maps:** plan CRUD, uploads/replacement with keep/clear placements, normalized geometry, zoom/pan/fit, placement Save/Cancel, stale revision conflicts, cross-plan selection, navigation guards, one-plan-per-camera policy if still present, persistence after reload.
-- **Monitoring:** shared viewer across Control Center, existing Live Monitoring and camera details; single/2x2 modes, filters/slot selection, bounded preview concurrency, timeout/cancellation/retry, frame-ID freshness, object-URL cleanup, logout/session expiry and no accumulating polling after navigation. Distinguish disabled/offline/stale/worker unavailable states.
-- **Devices:** add/edit/test connection, retained or explicitly cleared RTSP credentials, permissions, health and optional metadata. Never return source secrets to the UI.
-- **Rules and AI modules:** actual module availability, configuration persistence, normalized zones/lines, supported temporal thresholds/schedules, assignment to the correct source, unavailable weights clearly reported. Verify only scenarios supported by the implementation; do not invent detection capability.
-- **Incidents:** filtering/pagination/history, evidence authorization, event-time evidence distinct from live preview, server-validated NEW/ACKNOWLEDGED/RESOLVED/FALSE_ALARM transitions, actor/time/notes and concurrent updates.
-- **Notifications:** existing in-app counters/toasts/sound, deduplication and preferences, listener cleanup. External delivery is not implied and must not be sent during QA.
-- **Video Analysis:** authorized upload/size/decode checks, FILE job creation/progress/cancel/results/timeline, source/job isolation and explicit synthetic-demo labeling.
-- **Settings/auth:** actual roles and backend enforcement, failed save behavior, session expiry, account access and configuration consistency.
+## 5. Refine existing feature workflows, not just the dashboard
+### Maps
+- Separate view/edit modes clearly. Keep Add plan / Edit map discoverable, and show concise placement instructions only while editing.
+- Present unplaced cameras in a searchable picker. Preserve normalized coordinates, pan/zoom/fit, placement persistence, revision conflicts, replacement keep/clear choices and Save/Cancel semantics.
+- Do not lose unsaved edits through a drawer, route change, plan switch or responsive layout change. Keep marker targets usable, even on small screens.
 
-For each implemented workflow, check loading/empty/error/offline states, reload persistence, matching IDs/contracts/timestamps, and UI integration. Do not call a feature complete just because a component or endpoint exists. Record missing teammate deliverables without implementing entire absent features in this audit.
+### Live Monitoring and Cameras
+- Preserve the shared viewer across Control Center, Live Monitoring and camera details; no duplicate preview loops.
+- Clean search/status filter, obvious single/2x2 toggle and slot assignment. Avoid action buttons floating over important video content; keep video aspect ratio intact and use object-fit contain where appropriate.
+- Make no-camera, connecting, disabled, offline, stale frame, missing worker and permission-denied states distinct, with a relevant next action. Do not offer a reconnect button unless it actually works.
+- Camera forms group connection essentials first and optional device/context details under a disclosure. Preserve password retention/explicit clearing and connection-test behavior. Do not expose stored credentials.
 
-## 4. Known worker issue and database integration
-- Investigate the previously reported intermittent Windows `PermissionError` when replacing the preview manifest. Reproduce if possible and inspect handle lifetime, atomic publication, reader behavior, frame/manifest consistency and retry bounds. Fix confirmed causes without suppressing failures, serving stale frames as fresh or adding infinite retries. Add targeted regression coverage if changed. If Windows is unavailable, report that reproduction remains blocked.
-- Inspect Alembic heads and the combined teammate migration graph, including historical 0004/0005 where present. Do not rewrite shared migration history or blindly stamp the DB. Resolve genuine graph/schema conflicts with appropriate new migrations.
-- Test a fresh disposable database and upgrade from the supported pre-integration revision with representative records. Verify records survive upgrades.
-- Run PostgreSQL/Compose integration when available, using isolated services/volumes and no operational ports/data. Otherwise mark it NOT VERIFIED; SQLite or Compose config parsing is not equivalent.
+### Incidents and notifications
+- Use a clear list/detail workflow with consistent severity/status labels, readable timestamps, searchable/filterable history and existing export capabilities.
+- Evidence and action hierarchy should let an operator understand the incident before choosing an action. Retain audit notes/history and missing/expired evidence states.
+- Keep counters, toast and sound preferences consistent. Do not duplicate notification subscriptions or send external notifications during QA.
 
-## 5. Validation and bounded fixes
-Prioritize login blockers, data loss/security problems, broken cross-panel workflows, then reproducible integration regressions. Keep fixes in their owning modules; shared files should remain integration points. Avoid unrelated formatting, framework changes and speculative refactors.
+### Video Analysis, AI and rules
+- Video Analysis presents upload -> module selection -> progress -> results as a clear sequence, reusing the existing FILE pipeline. Preserve cancel, validation, timeline and job/source isolation.
+- AI Hub distinguishes available, missing weights, validation failure, loading and disabled states truthfully. Basic users see concise status/action; detailed metadata goes in a disclosure. Do not display fake model readiness.
+- Rules/forms group source, detection scenario, geometry and timing logically with units and meaningful inline errors. Preserve supported schedules, zones/lines and permissions. Unsupported capabilities must not appear as working toggles.
 
-Use repository test commands and meaningful regression tests for each actual fix. Run backend and relevant frontend suites, migrations, syntax/compilation checks and git diff --check. Report current counts and failures honestly.
+## 6. Behavior, accessibility and responsiveness
+- Use real API data and persistent saves. No production mock fallbacks, fabricated cameras, fake charts, fake success toasts or inert controls. Synthetic demo states stay explicitly labelled.
+- Preserve API response/error contracts and backend role enforcement. Do not alter database schema or operational settings unless a confirmed UI integration blocker requires a minimal documented change.
+- Do not clear operator input on request errors. Use inline validation and clear recovery actions; prevent duplicate mutation requests.
+- Implement loading, empty, error, offline, stale, permission-denied and session-expired states as appropriate. Do not use endless skeletons when an error has occurred.
+- Keyboard access, visible focus, associated field labels, semantic buttons, accessible names, focus trapping/return for dialogs and drawers, Escape handling with unsaved-change protection, adequate contrast and reduced-motion support.
+- Desktop at 1440 px and laptop at 1280 px: map/video remain useful and actions do not collide. Tablet at 768 px: simplify columns and move secondary information into drawers. Mobile at 375 px: use an accessible navigation drawer and clear Map / Camera / Events views or stacking, preserving selection across views. Do not shrink six panels into unreadable boxes.
+- Long camera names, many cameras, long incident notes and Thai text must not break layout. No horizontal page overflow; intentional table scrolling must be contained and usable.
+- Changing viewport, tabs or routes must not duplicate requests, reset saved map coordinates or leak listeners/object URLs. Retain bounded preview concurrency, frame freshness, cancellation/retry and logout cleanup from the existing monitoring implementation.
 
-Use Playwright or an available browser runner against an isolated local API/database/worker:
-1. Login, inspect authenticated identity, visit original pages and Control Center.
-2. Create a plan, place a controlled camera, save, reload and select it from the map.
-3. Inspect live preview and the corresponding existing Monitoring view; switch single/2x2 and navigate repeatedly (at least ten cycles) while checking request cleanup.
-4. Use an explicitly synthetic incident to verify event selection -> map/camera/context/detail synchronization -> acknowledge -> history/persistence. Do not attach current live imagery as incident-time evidence.
-5. Exercise implemented rule/video/device flows with controlled fixtures and invalid inputs.
-6. Verify logout/session expiry and backend role restrictions, including direct API access.
-7. Check layouts at 1440, 768 and 375 px, keyboard focus, actionable errors and console/network failures.
-8. Observe preview for at least five minutes where a worker can run; record freshness, errors and bounded requests. A synthetic soak is not real-camera validation.
+## 7. Implementation sequence
+1. Audit the live UI and current feature/route contracts; note baseline screenshots internally without credentials or private camera imagery.
+2. Implement shared tokens/components and app shell; create a coherent first working Control Center and login.
+3. Apply the same system to every existing operator-facing route, modal and form. Finish the main workflows before decorative polish. Do not leave half the application in the old style.
+4. Validate with the real local API and controlled fixtures. Iterate after viewing actual screenshots, including all requested widths.
+5. Remove obsolete UI/styles only after checking references; update relevant docs and provide the final handoff.
 
-Use isolated environment variables, data directories and ports for tests. Track and stop only processes started by this task. Do not modify physical camera settings or run real inference without configured authorized resources. Never commit generated evidence, uploads, databases, secrets or weights.
+## 8. Verification and definition of done
+Use the existing tests and focused regressions where behavior changed; do not add tests that merely assert chosen colors/classes. Run applicable frontend/backend tests, syntax checks and git diff --check. No need to repeat unrelated model training or hardware qualification for a UI redesign.
 
-## 6. Deliverables and completion criteria
-- Focused, validated fixes and regression tests for confirmed in-scope defects.
-- `docs/INTEGRATION_AUDIT.md`: tested HEAD/branch, feature matrix, issue severity, reproduction, fixes, current results and explicit blockers.
-- `docs/LOGIN_DIAGNOSIS.md`: sanitized runtime/configuration trace, actual cause or unresolved evidence, correction, verified startup steps and exact safe recovery instructions if required. Do not include passwords, hashes, cookies or full database connection URLs containing credentials.
-- Update existing README/status/feature contracts only where verified behavior changed. Preserve teammate content.
-- Final Thai handoff: what works, what was fixed, whether the user's login is actually restored, tests run, unverified paths, remaining issues ordered by severity with owner, and exact PowerShell commands verified against this checkout.
-- State separate readiness outcomes for UI/API integration, synthetic pipeline, real camera, real inference and PostgreSQL deployment. Do not claim overall production readiness from mocks or test counts.
-- No commit, push, merge or deployment. Offer a commit message only after reporting the actual final scope.
+Browser QA is required for claiming visual completion. Prefer the available Playwright tooling. If its regular Chrome profile is occupied, use an isolated temporary browser profile/context or an available local runner. Do not kill the user's browser, bypass tool restrictions or silently mark browser checks as passed. If genuinely unavailable, finish independent work and clearly mark visual acceptance NOT VERIFIED.
 
-Start with baseline inspection and login diagnosis, then continue through the integration audit and focused fixes without waiting for approval for ordinary reversible work.
+Exercise with an isolated test database/account and synthetic media:
+- Login -> Control Center -> every existing navigation destination -> logout.
+- Plan create/select/edit/place camera/save/reload/cancel, including zoom and responsive changes.
+- Marker/incident selection -> correct preview/context/evidence, with no selection stealing when events arrive.
+- Single/2x2 live monitoring, camera picker, offline/stale/worker-down states and repeated navigation cleanup.
+- Incident acknowledge/resolve/false-alarm and persisted history using the allowed transitions.
+- Existing camera edit/test, video upload/progress/cancel/results and AI/rules forms.
+- ADMIN/OPERATOR UI permissions and direct API restrictions remain intact.
+- 1440, 1280, 768 and 375 px; keyboard/dialog focus; long text; empty/loading/error states; console and failed network requests.
+
+Inspect before/after screenshots locally for spacing, hierarchy, alignment and readability. Keep QA outputs free of secrets and private footage, and out of Git unless an existing test convention calls for sanitized fixtures. Stop only temporary services created for this task.
+
+Deliver:
+- The redesigned working existing Visor application, not a parallel prototype.
+- `docs/VISOR_UI_REDESIGN.md` with the usability problems addressed, final navigation mapping, design tokens, modified modules, workflow changes, browser evidence/results and limitations.
+- Relevant status/docs updates and a short Thai handoff: what changed, how to start/view it, actual checks, unresolved issues and suggested commit message.
+- No commit, push, merge or deployment. Preserve task.md edits and teammate work. Do not claim camera connectivity, real model inference or production readiness from a UI test.
+
+Begin assessment now and continue through implementation and visual verification. Make the interface substantially easier to use, not merely more decorative.

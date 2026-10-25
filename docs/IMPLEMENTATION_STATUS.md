@@ -1,5 +1,12 @@
 # Implementation status
 
+## Visor UI usability redesign (2026-10-26)
+
+The existing Visor SPA now uses a light, compact workspace with grouped Operations / Analysis / Configuration navigation, an accessible mobile drawer, consistent controls and a focused Control Center. Its main view prioritizes the floor plan and shared live preview, then presents the incident queue; camera context is optional. Map editing has explicit drafts and unsaved-change guards. Login, camera, zone, incident, FILE analysis, AI Hub, overview, and settings screens share the new hierarchy. AI readiness remains stated according to actual module metadata, and the generated analysis workflow remains explicitly simulated. UTF-8 decoding is explicit for the served HTML shell on Windows.
+
+Browser evidence on an isolated SQLite API/worker fixture: all seven existing destinations traversed at 1440/1280/768/375 pixels, **28 checks passed** with no horizontal page overflow or JavaScript exceptions. Admin and operator permissions, map placement/replacement/context saves, camera forms, rule geometry, incident status transitions/history, upload and SIMULATED FILE results/export/cancel were exercised. Backend focused tests: **19 passed**; frontend feature and new geometry/dialog lifecycle tests: **24 passed**. One existing Starlette/AnyIO deprecation warning. No physical camera, real-model inference, PostgreSQL, or deployment qualification is implied. See [Visor redesign evidence](VISOR_UI_REDESIGN.md). The existing uncommitted `task.md` user edit was preserved; no commit/push was made.
+
+
 ## Module telemetry publication fix (2026-10-25)
 
 A supplied Windows Server run processed 899 frames and displayed one event but ended FAILED with WinError 5 while replacing module-status-fire_smoke.json. Module status publication now uses unique same-directory temporary files and four bounded replace attempts for PermissionError. If publication still fails, it logs a warning and preserves the previous status without turning successful model inference into a failed FILE job. Inference exceptions and durable job/result writes retain their existing failure behavior. Tests cover transient sharing denial, persistent denial with preservation/cleanup, distinct temporary paths, and the worker-report exception boundary. The Server run must be repeated after applying this fix; no successful Server retest is claimed.
