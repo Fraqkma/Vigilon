@@ -1,8 +1,10 @@
-import argparse, json, os, time
+import argparse, getpass, json, os, time
 from pathlib import Path
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="command",required=True)
     sub.add_parser("migrate"); b=sub.add_parser("bootstrap-admin"); b.add_argument("--username",default=os.getenv("VIGILON_ADMIN_USERNAME","admin")); b.add_argument("--password",default=os.getenv("VIGILON_ADMIN_PASSWORD")); s=sub.add_parser("seed-demo"); s.add_argument("--scenario",choices=["normal","obstruction","person_down","smoke_fire"],default="obstruction")
+    reset=sub.add_parser("reset-admin-password",help="Interactively reset the configured existing administrator password")
+    reset.add_argument("--username",default=os.getenv("VIGILON_ADMIN_USERNAME","admin"),help="Must exactly match VIGILON_ADMIN_USERNAME (defaults to that configured value)")
     sub.add_parser("provision-camera",help="Create or reuse the opt-in RTSP source configured in local .env")
     sub.add_parser("list-models")
     t=sub.add_parser("init-model-package");t.add_argument("module_id");t.add_argument("--destination",required=True)
@@ -33,6 +35,34 @@ def main():
         if not args.password: raise SystemExit("Set VIGILON_ADMIN_PASSWORD in .env before bootstrapping.")
         bootstrap(args.username,args.password,PasswordHasher().hash)
         print(f"Administrator {args.username!r} is ready (existing users are unchanged).")
+    elif args.command=="reset-admin-password":
+        from argon2 import PasswordHasher
+        from .db import DATABASE_URL, reset_admin_password
+        configured_username=os.getenv("VIGILON_ADMIN_USERNAME","admin")
+        if args.username != configured_username:
+            raise SystemExit("Refusing reset: --username must exactly match VIGILON_ADMIN_USERNAME.")
+        if DATABASE_URL.startswith("sqlite:"):
+            target="SQLite " + str(Path(DATABASE_URL.removeprefix("sqlite:///")).resolve())
+        elif "@" in DATABASE_URL:
+            target=DATABASE_URL.split(":",1)[0] + " database " + DATABASE_URL.rsplit("/",1)[-1].split("?",1)[0] + " (credentials redacted)"
+        else:
+            target="configured database (connection details redacted)"
+        print(f"Target: {target}")
+        target_confirmation=input("Type the database target exactly to continue: ")
+        if target_confirmation != target:
+            raise SystemExit("Database target confirmation did not match; no account was changed.")
+        confirmation=input(f"Type {args.username!r} to confirm the administrator account: ")
+        if confirmation != args.username:
+            raise SystemExit("Confirmation did not match; no account was changed.")
+        password=getpass.getpass("New administrator password (12+ characters): ")
+        repeated=getpass.getpass("Repeat new administrator password: ")
+        if password != repeated:
+            raise SystemExit("Passwords did not match; no account was changed.")
+        try:
+            reset_admin_password(args.username,password,configured_username,PasswordHasher().hash)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from None
+        print("Administrator password updated. Existing signed sessions remain valid until their normal expiry (8 hours).")
     elif args.command=="seed-demo":
         from .db import Session, Camera, Rule
         with Session.begin() as db:

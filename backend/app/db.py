@@ -44,3 +44,17 @@ def bootstrap(username,password,hasher):
     with Session.begin() as db:
         if db.scalar(select(User).where(User.username==username)) is None:
             db.add(User(username=username,password_hash=hasher(password),role=Role.ADMIN))
+
+def reset_admin_password(username,password,expected_username,hasher):
+    """Reset only the explicitly configured, existing active administrator."""
+    if not expected_username or username != expected_username:
+        raise ValueError("Username must exactly match VIGILON_ADMIN_USERNAME.")
+    if len(password) < 12:
+        raise ValueError("The new administrator password must be at least 12 characters.")
+    with Session.begin() as db:
+        user=db.scalar(select(User).where(User.username==username))
+        if user is None:
+            raise ValueError("Configured administrator account does not exist; no account was changed.")
+        if not user.active or user.role != Role.ADMIN:
+            raise ValueError("Configured account is not an active administrator; no account was changed.")
+        user.password_hash=hasher(password)

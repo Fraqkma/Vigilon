@@ -3,6 +3,11 @@
 ## Module telemetry publication fix (2026-10-25)
 
 A supplied Windows Server run processed 899 frames and displayed one event but ended FAILED with WinError 5 while replacing module-status-fire_smoke.json. Module status publication now uses unique same-directory temporary files and four bounded replace attempts for PermissionError. If publication still fails, it logs a warning and preserves the previous status without turning successful model inference into a failed FILE job. Inference exceptions and durable job/result writes retain their existing failure behavior. Tests cover transient sharing denial, persistent denial with preservation/cleanup, distinct temporary paths, and the worker-report exception boundary. The Server run must be repeated after applying this fix; no successful Server retest is claimed.
+## Current integrated audit overlay (2026-10-24)
+
+On audited `fire-smoke` HEAD `60b793d91c50fc4c896368dd93d518faf375b0f7`, read-only inspection confirmed that the configured administrator password does not match the existing active account hash. Bootstrap is create-only; the local `reset-admin-password` recovery command is available but was not run against operational data. See [login diagnosis](LOGIN_DIAGNOSIS.md). A local checkpoint is present in at least one canonical model package and metadata reports `LOADING`; it was not executed or runtime-validated, so `REAL_MODEL_VALIDATED` remains **no**. Earlier rows below record their original environment and are not current proof of model absence.
+
+The integration audit and feature coverage matrix are in [INTEGRATION_AUDIT.md](INTEGRATION_AUDIT.md). Current verification covers isolated SQLite/API/worker tests; browser automation was blocked by the already-used shared Chrome profile, and PostgreSQL/Compose were not run.
 
 ## AI 2 compact experimental model handoff (2026-10-24)
 

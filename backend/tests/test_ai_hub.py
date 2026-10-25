@@ -79,7 +79,8 @@ def test_zone_line_and_dwell_rules_are_stateful_and_session_local():
 
 def test_module_catalog_exposes_missing_weights_not_ready(tmp_path,monkeypatch):
     root=tmp_path/"models";root.mkdir()
-    for name in ai_hub.BUILTINS: shutil.copytree(ai_hub.ROOT/"models"/name,root/name)
+    for name in ai_hub.BUILTINS:
+        shutil.copytree(ai_hub.ROOT/"models"/name,root/name,ignore=shutil.ignore_patterns("*.pt","*.pth","*.onnx","*.engine"))
     monkeypatch.setattr(ai_hub,"MODEL_ROOT",root)
     catalog=ai_hub.AIHub().list()
     assert {m["status"] for m in catalog}=={"MISSING_WEIGHTS"}

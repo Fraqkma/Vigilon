@@ -18,6 +18,8 @@ $env:PYTHONPATH = 'backend'
 
 Setup creates ignored `.env` values only where placeholders remain, prompts for an administrator password without echoing it, and leaves configured values alone. If `.env` exists but is empty, setup seeds it from `.env.example`. Start the API and worker in two PowerShell windows from the repository root:
 
+`bootstrap-admin` creates the configured administrator only when that username is absent; it does not change an existing password. For confirmed local recovery, `reset-admin-password` requires the configured existing active administrator, exact database-target and account confirmations, and a hidden password prompt. It changes only that account's password hash and does not revoke stateless sessions. See [login diagnosis and recovery](docs/LOGIN_DIAGNOSIS.md).
+
 ```powershell
 $env:PYTHONPATH = 'backend'
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
@@ -92,6 +94,7 @@ From the repository root on Windows, set `$env:PYTHONPATH='backend'`; on Linux/m
 ```text
 python -m app.commands migrate
 python -m app.commands bootstrap-admin
+python -m app.commands reset-admin-password
 python -m app.commands seed-demo --scenario obstruction
 python -m app.retention
 python -m pytest -q backend/tests

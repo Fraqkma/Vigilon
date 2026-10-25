@@ -138,8 +138,20 @@ def test_roles_zone_geometry_and_simulated_camera_secret_boundaries():
     update_body["zone"]={"type":"polygon","points":[[.2,.2],[.2,.2],[.2,.2]]}
     assert client.put(f"/api/rules/{rule.id}",json=update_body).status_code==422
 
-def test_ai_hub_catalog_assignment_and_admin_validation_are_authenticated(monkeypatch):
+def test_ai_hub_catalog_assignment_and_admin_validation_are_authenticated(monkeypatch,tmp_path):
+    import shutil
     client=TestClient(app);client.post("/api/auth/login",json={"username":"admin","password":"test-admin-password"})
+    from app import ai_hub
+    from app.main import hub
+    fixture_root=tmp_path/"models"
+    fixture_root.mkdir()
+    for module_id in ai_hub.BUILTINS:
+        shutil.copytree(ai_hub.ROOT/"models"/module_id,fixture_root/module_id,ignore=shutil.ignore_patterns("*.pt","*.pth","*.onnx","*.engine"))
+    monkeypatch.setattr(ai_hub,"MODEL_ROOT",fixture_root)
+    monkeypatch.setattr(ai_hub,"HANDOFF_ROOT",fixture_root/"handoff")
+    (fixture_root/"handoff").mkdir()
+    monkeypatch.setattr(hub,"packages",{})
+    original_list=hub.list
     catalog=client.get("/api/ai/modules")
     assert catalog.status_code==200 and catalog.json()["hub_status"]=="HUB_INFRA_READY"
     assert {x["status"] for x in catalog.json()["modules"]}=={"MISSING_WEIGHTS"}
@@ -148,11 +160,10 @@ def test_ai_hub_catalog_assignment_and_admin_validation_are_authenticated(monkey
     camera_id=model_source.json()["id"]
     unavailable=client.put(f"/api/cameras/{camera_id}/modules",json={"modules":["people_vehicle"]})
     assert unavailable.status_code==409 and "MISSING_WEIGHTS" in unavailable.text
-    from app.main import hub
     monkeypatch.setattr(hub,"list",lambda:[{"module_id":"people_vehicle","status":"READY"},{"module_id":"fire_smoke","status":"MISSING_WEIGHTS"}])
     assigned=client.put(f"/api/cameras/{camera_id}/modules",json={"modules":["people_vehicle"]})
     assert assigned.status_code==200 and assigned.json()["modules"]==["people_vehicle"]
-    monkeypatch.undo()
+    monkeypatch.setattr(hub,"list",original_list)
     validated=client.post("/api/admin/ai/modules/people_vehicle/validate",json={"mode":"runtime"})
     assert validated.status_code==200 and validated.json()["status"]=="MISSING_WEIGHTS"
     assert any(row.get("last_validation",{}).get("status")=="MISSING_WEIGHTS" for row in client.get("/api/ai/modules").json()["modules"])

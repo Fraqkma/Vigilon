@@ -35,3 +35,7 @@ $env:PYTHONPATH = 'backend'
 จากนั้นเลือกโมดูลใน Visor → AI Hub สำหรับ RTSP/RTSPS source ที่ตั้งค่าไว้ ส่วน FILE analysis สร้างและติดตามงานได้ใน AI Hub; CLI ก็ใช้ได้ เช่น .\.venv\Scripts\python.exe -m app.commands analyze-video --input entrance.mp4 --modules people_vehicle --output .data\analysis โดยไฟล์ต้องอยู่ใต้ VIGILON_MEDIA_DIR ค่าเริ่มต้นของ Compose mount models และ sample_data แบบ read-only
 
 เอกสาร package และข้อจำกัดอยู่ที่ models/README.md (models/README.md), docs/AI_HUB.md (docs/AI_HUB.md) และ docs/IMPLEMENTATION_STATUS.md (docs/IMPLEMENTATION_STATUS.md) API ของ adapter อ้างอิงรูปแบบ detection results และ ByteTrack ตาม Ultralytics detection docs และ ByteTrack reference; ยังไม่ได้ยืนยัน runtime กับเวอร์ชันที่ pin ด้วย checkpoint จริง
+
+reset admin password
+$env:PYTHONPATH = 'backend'
+.\.venv\Scripts\python.exe -m app.commands reset-admin-password
