@@ -4,7 +4,9 @@ Vigilon adds incident review, evidence snapshots, and operator actions to compat
 
 ## Local demo on Windows
 
-Requirements: Python 3.10 or newer. Node and Docker are not needed for the local demo.
+Requirements: Python 3.10 through 3.13. Node and Docker are not needed for the local demo.
+
+For one-command setup and startup, run `run_web.bat` from File Explorer or Command Prompt. It creates `.venv` if needed, installs the runtime packages from `requirements.txt`, prepares `.env`, applies migrations, ensures the configured administrator exists, and starts the API and worker in separate windows. On first setup, `scripts/setup.ps1` prompts for the local administrator password. The browser opens at `http://127.0.0.1:8000`. The test dependencies in `requirements-dev.lock` and optional AI dependencies in `requirements-ai.lock` are not needed to run the web app.
 
 ```powershell
 python -m venv .venv
